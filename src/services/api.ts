@@ -1,4 +1,5 @@
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+const rawUrl = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+const API_BASE = rawUrl.replace(/\/$/, "");
 
 export async function apiFetch(endpoint: string, options: RequestInit = {}) {
   const token = localStorage.getItem("token");
@@ -11,7 +12,9 @@ export async function apiFetch(endpoint: string, options: RequestInit = {}) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+
+  const res = await fetch(`${API_BASE}${cleanEndpoint}`, {
     ...options,
     headers,
   });
