@@ -352,9 +352,30 @@ export const Employees: React.FC = () => {
                   <Typography variant="subtitle1" sx={{ fontWeight: 800, display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
                     <AccessTimeIcon color="secondary" /> Horario Vigente
                   </Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                    Horario General 8:30am - 6:30pm (Tolerancia 10 min)
-                  </Typography>
+                  {(() => {
+                    const activeSchedule = schedules.find((s) => Number(s.id) === Number(selectedEmp.schedule_id));
+                    const name = activeSchedule ? activeSchedule.name : (selectedEmp.schedule_name || "Sin horario asignado");
+                    const desc = activeSchedule?.description;
+                    const shifts = activeSchedule?.shifts || [];
+                    return (
+                      <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700, textTransform: "capitalize" }}>
+                          {name} {desc ? `(${desc})` : ""}
+                        </Typography>
+                        {shifts.length > 0 && (
+                          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.5, mt: 0.5 }}>
+                            {shifts.map((sh: any, idx: number) => (
+                              <Typography key={idx} variant="caption" color="text.secondary">
+                                • {sh.name || `Turno ${idx + 1}`}: {sh.start_time?.slice(0, 5)} - {sh.end_time?.slice(0, 5)}
+                                {sh.break_start_time ? ` (Refrigerio: ${sh.break_start_time?.slice(0, 5)} - ${sh.break_end_time?.slice(0, 5)})` : ""}
+                                {sh.check_in_tolerance_min ? ` · Tol. Entrada: ${sh.check_in_tolerance_min} min` : ""}
+                              </Typography>
+                            ))}
+                          </Box>
+                        )}
+                      </Box>
+                    );
+                  })()}
                 </Paper>
               </Box>
             )}
