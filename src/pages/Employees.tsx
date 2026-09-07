@@ -28,6 +28,17 @@ import { PageHeader } from "../components/PageHeader";
 import { DataTable } from "../components/DataTable";
 import { StatusChip } from "../components/StatusChip";
 
+function parseWorkDays(raw: any): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.flatMap(parseWorkDays);
+  if (typeof raw === "string") {
+    const cleaned = raw.replace(/[\{\}\"\'\s]/g, "");
+    if (!cleaned) return [];
+    return cleaned.split(",").filter(Boolean);
+  }
+  return [];
+}
+
 const ALL_DAYS = [
   { key: "MONDAY", label: "Lun" },
   { key: "TUESDAY", label: "Mar" },
@@ -92,6 +103,7 @@ export const Employees: React.FC = () => {
     setOtRate("8.00");
     setContractType("CONTRACT");
     setWorkDays(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]);
+    setScheduleId(schedules.length ? String(schedules[0].id) : "");
     setShowModal(true);
   };
 
@@ -106,7 +118,8 @@ export const Employees: React.FC = () => {
     setDailyRate(String(emp.daily_rate || 50));
     setOtRate(String(emp.overtime_hourly_rate || 8));
     setContractType(emp.contract_type || "CONTRACT");
-    setWorkDays(emp.work_days || []);
+    setWorkDays(parseWorkDays(emp.work_days));
+    setScheduleId(emp.schedule_id ? String(emp.schedule_id) : (schedules.length ? String(schedules[0].id) : ""));
     setShowModal(true);
   };
 
@@ -216,7 +229,7 @@ export const Employees: React.FC = () => {
       accessorKey: "work_days",
       header: "Días Laborales",
       cell: (info) => {
-        const days: string[] = info.getValue() as any || [];
+        const days: string[] = parseWorkDays(info.getValue());
         return (
           <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
             {ALL_DAYS.map((d) => {
