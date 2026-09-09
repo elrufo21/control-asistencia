@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   Box,
   Button,
@@ -31,9 +31,13 @@ import CardGiftcardIcon from "@mui/icons-material/CardGiftcard";
 import StarIcon from "@mui/icons-material/Star";
 import MoneyOffIcon from "@mui/icons-material/MoneyOff";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CancelIcon from "@mui/icons-material/Cancel";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import HistoryIcon from "@mui/icons-material/History";
 import PaymentsIcon from "@mui/icons-material/Payments";
 import PriceCheckIcon from "@mui/icons-material/PriceCheck";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
+import BeachAccessIcon from "@mui/icons-material/BeachAccess";
 import { ColumnDef } from "@tanstack/react-table";
 import { apiFetch } from "../services/api";
 import { PageHeader } from "../components/PageHeader";
@@ -50,6 +54,61 @@ const ALL_DAYS = [
   { key: "SATURDAY", label: "Sáb" },
   { key: "SUNDAY", label: "Dom" },
 ];
+
+/**
+ * Formatea una fecha de manera entendible para el usuario,
+ * extrayendo día de semana, día, mes y año sin desfases de zona horaria.
+ */
+function formatCalendarDate(rawDate: any) {
+  if (!rawDate) return { full: "-", short: "-", dmy: "-", dayName: "", dayNum: "", monthName: "", year: "", isSunday: false };
+  const str = String(rawDate).slice(0, 10);
+  const [yStr, mStr, dStr] = str.split("-");
+  const y = Number(yStr);
+  const m = Number(mStr);
+  const d = Number(dStr);
+  if (!y || !m || !d) return { full: str, short: str, dmy: str, dayName: "", dayNum: str, monthName: "", year: "", isSunday: false };
+
+  const daysOfWeek = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+  const fullDaysOfWeek = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+  const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+  const fullMonths = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+  // Usar componentes locales para evitar desfases de conversión UTC
+  const dt = new Date(y, m - 1, d);
+  const dayIndex = dt.getDay();
+  const dayName = daysOfWeek[dayIndex];
+  const fullDayName = fullDaysOfWeek[dayIndex];
+  const monthName = months[m - 1];
+  const fullMonthName = fullMonths[m - 1];
+  const dayNum = String(d).padStart(2, "0");
+
+  return {
+    full: `${dayName}, ${dayNum} ${monthName} ${y}`,
+    short: `${dayName}, ${dayNum} ${monthName}`,
+    readableFull: `${fullDayName}, ${dayNum} de ${fullMonthName} de ${y}`,
+    dmy: `${dayNum}/${monthName}/${y}`,
+    dayName,
+    fullDayName,
+    dayNum,
+    monthName,
+    fullMonthName,
+    year: String(y),
+    isSunday: dayIndex === 0,
+  };
+}
+
+function formatDateDMY(rawDate: any): string {
+  if (!rawDate) return "-";
+  const str = String(rawDate).slice(0, 10);
+  const [yStr, mStr, dStr] = str.split("-");
+  const y = Number(yStr);
+  const m = Number(mStr);
+  const d = Number(dStr);
+  if (!y || !m || !d) return str;
+  const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+  const monthName = months[m - 1] || mStr;
+  return `${String(d).padStart(2, "0")}/${monthName}/${y}`;
+}
 
 export const Payroll: React.FC = () => {
   const [mainTab, setMainTab] = useState(0);
@@ -76,6 +135,8 @@ export const Payroll: React.FC = () => {
   const [advEmployeeId, setAdvEmployeeId] = useState<string>("");
   const [advAmount, setAdvAmount] = useState<string>("");
   const [advReason, setAdvReason] = useState<string>("");
+  const [advStatus, setAdvStatus] = useState<string>("APPROVED");
+  const [advanceFilterStatus, setAdvanceFilterStatus] = useState<string>("ALL");
   const [creatingAdvance, setCreatingAdvance] = useState(false);
 
   // Period Form State
@@ -102,11 +163,17 @@ export const Payroll: React.FC = () => {
   const [editNotes, setEditNotes] = useState<string>("");
   const [savingIndividual, setSavingIndividual] = useState(false);
 
+  // Ciclos Individuales de Empleados State
+  const [employeeCycles, setEmployeeCycles] = useState<any[]>([]);
+  const [loadingCycles, setLoadingCycles] = useState(false);
+  const [cycleRefDate, setCycleRefDate] = useState<string>(new Date().toISOString().slice(0, 10));
+
   useEffect(() => {
     loadPeriods();
     loadPaymentHistory();
     loadAdvances();
     loadEmployees();
+    loadEmployeeCycles();
   }, []);
 
   useEffect(() => {
@@ -169,6 +236,19 @@ export const Payroll: React.FC = () => {
     }
   }
 
+  async function loadEmployeeCycles(refDate?: string) {
+    setLoadingCycles(true);
+    try {
+      const dateParam = refDate || cycleRefDate;
+      const data = await apiFetch(`/payroll/cycles?reference_date=${dateParam}`);
+      setEmployeeCycles(data.cycles || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingCycles(false);
+    }
+  }
+
   const handleCreatePeriod = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -195,11 +275,14 @@ export const Payroll: React.FC = () => {
           employee_id: Number(advEmployeeId),
           amount: Number(advAmount),
           reason: advReason || "Adelanto registrado desde el panel de administración",
+          status: advStatus,
+          requested_from: "WEB",
         }),
       });
       setShowAddAdvanceModal(false);
       setAdvAmount("");
       setAdvReason("");
+      setAdvStatus("APPROVED");
       await loadAdvances();
       if (selectedPeriodId) await loadPeriodSummary(selectedPeriodId);
       alert("¡Adelanto de sueldo registrado exitosamente!");
@@ -207,6 +290,38 @@ export const Payroll: React.FC = () => {
       alert(err.message || "Error al registrar adelanto");
     } finally {
       setCreatingAdvance(false);
+    }
+  };
+
+  const handleUpdateAdvanceStatus = async (id: number, status: "APPROVED" | "REJECTED" | "PENDING") => {
+    const actionLabel = status === "APPROVED" ? "Aprobar y Confirmar" : status === "REJECTED" ? "Rechazar" : "Revertir a Pendiente";
+    if (!window.confirm(`¿Estás seguro de que deseas ${actionLabel} este adelanto de sueldo?`)) {
+      return;
+    }
+    try {
+      await apiFetch(`/payroll/advances/${id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      await loadAdvances();
+      if (selectedPeriodId) await loadPeriodSummary(selectedPeriodId);
+    } catch (err: any) {
+      alert(err.message || "Error al actualizar estado del adelanto");
+    }
+  };
+
+  const handleDeleteAdvance = async (id: number) => {
+    if (!window.confirm("¿Seguro que deseas eliminar este adelanto? Esta acción no se puede deshacer.")) {
+      return;
+    }
+    try {
+      await apiFetch(`/payroll/advances/${id}`, {
+        method: "DELETE",
+      });
+      await loadAdvances();
+      if (selectedPeriodId) await loadPeriodSummary(selectedPeriodId);
+    } catch (err: any) {
+      alert(err.message || "Error al eliminar adelanto");
     }
   };
 
@@ -418,13 +533,13 @@ export const Payroll: React.FC = () => {
     },
     {
       accessorKey: "day_7_amount",
-      header: "Día 7 (S/)",
+      header: "Descansos (S/)",
       cell: (info) => {
         const val = Number(info.getValue());
         const r = info.row.original;
         return val > 0 ? (
           <Typography variant="body2" sx={{ fontWeight: 700, color: "primary.main" }}>
-            +S/ {val.toFixed(2)} ({r.day_7_paid_days}d)
+            +S/ {val.toFixed(2)} ({Number(r.day_7_paid_days)}d)
           </Typography>
         ) : (
           <Typography variant="caption" color="text.secondary">S/ 0.00</Typography>
@@ -484,7 +599,7 @@ export const Payroll: React.FC = () => {
       header: "Fecha de Pago",
       cell: (info) => (
         <Typography variant="body2" sx={{ fontWeight: 700 }}>
-          {String(info.getValue() || "").slice(0, 10)}
+          {formatDateDMY(info.getValue())}
         </Typography>
       ),
     },
@@ -504,22 +619,18 @@ export const Payroll: React.FC = () => {
       ),
     },
     {
-      accessorKey: "amount_paid",
-      header: "Monto Pagado",
+      accessorKey: "payment_method",
+      header: "Método",
+      cell: (info) => <Chip label={String(info.getValue())} size="small" sx={{ fontWeight: 700 }} />,
+    },
+    {
+      accessorKey: "net_amount",
+      header: "Total Pagado",
       cell: (info) => (
-        <Typography variant="subtitle2" sx={{ fontWeight: 900, color: "success.main" }}>
+        <Typography variant="body2" sx={{ fontWeight: 800, color: "success.main" }}>
           S/ {Number(info.getValue()).toFixed(2)}
         </Typography>
       ),
-    },
-    {
-      accessorKey: "payment_method",
-      header: "Método de Pago",
-      cell: (info) => {
-        const val = String(info.getValue());
-        const label = val === "TRANSFER" ? "Transferencia BCP/BBVA" : val === "CASH" ? "Efectivo" : "Cheque";
-        return <Chip label={label} size="small" sx={{ bgcolor: "#f1f5f9", fontWeight: 700 }} />;
-      },
     },
     {
       accessorKey: "reference_code",
@@ -537,6 +648,15 @@ export const Payroll: React.FC = () => {
     },
   ];
 
+  const pendingAdvancesCount = useMemo(() => {
+    return advancesList.filter((a) => a.status === "PENDING").length;
+  }, [advancesList]);
+
+  const filteredAdvances = useMemo(() => {
+    if (advanceFilterStatus === "ALL") return advancesList;
+    return advancesList.filter((a) => a.status === advanceFilterStatus);
+  }, [advancesList, advanceFilterStatus]);
+
   // TanStack Table columns - Adelantos de Sueldo
   const advancesColumns: ColumnDef<any>[] = [
     {
@@ -544,7 +664,7 @@ export const Payroll: React.FC = () => {
       header: "Fecha Solicitud",
       cell: (info) => (
         <Typography variant="body2" sx={{ fontWeight: 700 }}>
-          {String(info.getValue() || "").slice(0, 10)}
+          {formatDateDMY(info.getValue())}
         </Typography>
       ),
     },
@@ -590,13 +710,235 @@ export const Payroll: React.FC = () => {
     },
     {
       accessorKey: "status",
-      header: "Estado de Descuento",
+      header: "Estado",
       cell: (info) => {
         const val = String(info.getValue());
-        if (val === "PAID") return <Chip label="DESCONTADO EN PLANILLA" color="success" size="small" sx={{ fontWeight: 800 }} />;
-        if (val === "APPROVED") return <Chip label="PENDIENTE DE PLANILLA" color="warning" size="small" sx={{ fontWeight: 800 }} />;
+        if (val === "PENDING") {
+          return <Chip label="🟡 PENDIENTE DE CONFIRMACIÓN" color="warning" size="small" sx={{ fontWeight: 800 }} />;
+        }
+        if (val === "APPROVED") {
+          return <Chip label="🟢 CONFIRMADO (POR DESCONTAR)" color="info" size="small" sx={{ fontWeight: 800 }} />;
+        }
+        if (val === "PAID") {
+          return <Chip label="✔️ DESCONTADO EN PLANILLA" color="success" size="small" sx={{ fontWeight: 800 }} />;
+        }
+        if (val === "REJECTED") {
+          return <Chip label="🔴 RECHAZADO" color="error" size="small" sx={{ fontWeight: 800 }} />;
+        }
         return <Chip label={val} size="small" sx={{ fontWeight: 800 }} />;
       },
+    },
+    {
+      id: "actions",
+      header: "Gestión Administrador",
+      cell: (info) => {
+        const r = info.row.original;
+        if (r.status === "PENDING") {
+          return (
+            <Box sx={{ display: "flex", gap: 0.8, alignItems: "center" }}>
+              <Button
+                variant="contained"
+                color="success"
+                size="small"
+                startIcon={<CheckCircleIcon />}
+                onClick={() => handleUpdateAdvanceStatus(r.id, "APPROVED")}
+                sx={{ fontWeight: 800, textTransform: "none", fontSize: "0.75rem", py: 0.4, px: 1.2 }}
+              >
+                Confirmar
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                size="small"
+                startIcon={<CancelIcon />}
+                onClick={() => handleUpdateAdvanceStatus(r.id, "REJECTED")}
+                sx={{ fontWeight: 800, textTransform: "none", fontSize: "0.75rem", py: 0.4, px: 1 }}
+              >
+                Rechazar
+              </Button>
+              <IconButton
+                size="small"
+                color="error"
+                title="Eliminar adelanto"
+                onClick={() => handleDeleteAdvance(r.id)}
+              >
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          );
+        }
+        if (r.status === "APPROVED") {
+          return (
+            <Box sx={{ display: "flex", gap: 0.8, alignItems: "center" }}>
+              <Button
+                variant="outlined"
+                color="warning"
+                size="small"
+                onClick={() => handleUpdateAdvanceStatus(r.id, "REJECTED")}
+                sx={{ fontWeight: 700, textTransform: "none", fontSize: "0.72rem", py: 0.3, px: 1 }}
+              >
+                Rechazar
+              </Button>
+              <IconButton
+                size="small"
+                color="error"
+                title="Eliminar adelanto"
+                onClick={() => handleDeleteAdvance(r.id)}
+              >
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          );
+        }
+        if (r.status === "REJECTED") {
+          return (
+            <Box sx={{ display: "flex", gap: 0.8, alignItems: "center" }}>
+              <Button
+                variant="outlined"
+                color="success"
+                size="small"
+                startIcon={<CheckCircleIcon />}
+                onClick={() => handleUpdateAdvanceStatus(r.id, "APPROVED")}
+                sx={{ fontWeight: 700, textTransform: "none", fontSize: "0.72rem", py: 0.3, px: 1 }}
+              >
+                Re-Aprobar
+              </Button>
+              <IconButton
+                size="small"
+                color="error"
+                title="Eliminar adelanto"
+                onClick={() => handleDeleteAdvance(r.id)}
+              >
+                <DeleteOutlineIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          );
+        }
+        return (
+          <Typography variant="caption" color="text.secondary" sx={{ fontStyle: "italic" }}>
+            Liquidado en planilla #{r.period_id || ""}
+          </Typography>
+        );
+      },
+    },
+  ];
+
+  // TanStack Table columns - Ciclos Mensuales y Descansos
+  const cycleColumns: ColumnDef<any>[] = [
+    {
+      accessorKey: "employee_code",
+      header: "Código",
+      cell: (info) => (
+        <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 700, color: "primary.main" }}>
+          {String(info.getValue())}
+        </Typography>
+      ),
+    },
+    {
+      accessorKey: "full_name",
+      header: "Trabajador",
+      cell: (info) => {
+        const r = info.row.original;
+        return (
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+              {r.first_name} {r.last_name}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Ingreso: {r.hire_date ? formatDateDMY(r.hire_date) : "No registrada"}
+            </Typography>
+          </Box>
+        );
+      },
+    },
+    {
+      id: "cycle_range",
+      header: "Ciclo Mensual Activo",
+      cell: (info) => {
+        const c = info.row.original.cycle;
+        if (!c) return <Typography variant="caption" color="text.secondary">—</Typography>;
+        return (
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: "primary.main" }}>
+              {formatDateDMY(c.startDate)} al {formatDateDMY(c.endDate)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {c.daysInCycle} días de mes (Ancla: día {c.anchorDay})
+            </Typography>
+          </Box>
+        );
+      },
+    },
+    {
+      accessorKey: "worked_days",
+      header: "Días Asistidos",
+      cell: (info) => (
+        <Typography variant="body2" sx={{ fontWeight: 700 }}>
+          {Number(info.getValue())} días
+        </Typography>
+      ),
+    },
+    {
+      id: "day_off_stats",
+      header: "Descansos Usados / Restantes",
+      cell: (info) => {
+        const r = info.row.original;
+        const used = Number(r.used_days_off || 0);
+        const rem = Number(r.remaining_days_off || 0);
+        const maxD = Number(r.max_days_off || 4);
+        const isExceeded = used > maxD;
+        return (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 800, color: isExceeded ? "error.main" : "primary.main" }}>
+                {used} / {maxD} días
+              </Typography>
+              {isExceeded && (
+                <Chip label="⚠️ Exceso" color="error" size="small" sx={{ height: 18, fontSize: "0.6rem", fontWeight: 800 }} />
+              )}
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              {rem > 0 ? `Restan: ${rem} días por gozar` : "Saldo mensual completado"}
+            </Typography>
+          </Box>
+        );
+      },
+    },
+    {
+      accessorKey: "allow_half_day_off",
+      header: "Medio Día",
+      cell: (info) => (
+        <Chip
+          size="small"
+          label={info.getValue() ? "0.5d Habilitado" : "Solo 1.0d"}
+          color={info.getValue() ? "info" : "default"}
+          variant={info.getValue() ? "filled" : "outlined"}
+          sx={{ height: 22, fontSize: "0.68rem", fontWeight: 700 }}
+        />
+      ),
+    },
+    {
+      accessorKey: "pending_advances",
+      header: "Adelantos Pendientes",
+      cell: (info) => {
+        const val = Number(info.getValue() || 0);
+        return val > 0 ? (
+          <Typography variant="body2" sx={{ fontWeight: 700, color: "secondary.main" }}>
+            -S/ {val.toFixed(2)}
+          </Typography>
+        ) : (
+          <Typography variant="caption" color="text.secondary">S/ 0.00</Typography>
+        );
+      },
+    },
+    {
+      accessorKey: "projected_pay",
+      header: "Pago Proyectado Ciclo",
+      cell: (info) => (
+        <Typography variant="subtitle2" sx={{ fontWeight: 900, color: "success.main" }}>
+          S/ {Number(info.getValue() || 0).toFixed(2)}
+        </Typography>
+      ),
     },
   ];
 
@@ -659,7 +1001,25 @@ export const Payroll: React.FC = () => {
         <Tabs value={mainTab} onChange={(_, val) => setMainTab(val)}>
           <Tab label="1. Cálculo y Liquidación Actual" icon={<PaymentsIcon />} iconPosition="start" sx={{ fontWeight: 700 }} />
           <Tab label="2. Histórico de Pagos de Salario" icon={<HistoryIcon />} iconPosition="start" sx={{ fontWeight: 700 }} />
-          <Tab label={`3. 💸 Adelantos de Sueldo (${advancesList.length})`} icon={<PriceCheckIcon />} iconPosition="start" sx={{ fontWeight: 700 }} />
+          <Tab
+            label={
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.8 }}>
+                <span>3. 💸 Adelantos ({advancesList.length})</span>
+                {pendingAdvancesCount > 0 && (
+                  <Chip
+                    label={`${pendingAdvancesCount} por confirmar`}
+                    color="warning"
+                    size="small"
+                    sx={{ height: 20, fontSize: "0.7rem", fontWeight: 800 }}
+                  />
+                )}
+              </Box>
+            }
+            icon={<PriceCheckIcon />}
+            iconPosition="start"
+            sx={{ fontWeight: 700 }}
+          />
+          <Tab label={`4. 🔄 Ciclos y Descansos (${employeeCycles.length})`} icon={<CalendarMonthIcon />} iconPosition="start" sx={{ fontWeight: 700 }} />
         </Tabs>
       </Box>
 
@@ -677,7 +1037,7 @@ export const Payroll: React.FC = () => {
               >
                 {periods.map((p) => (
                   <MenuItem key={p.id} value={p.id}>
-                    {p.name} ({p.start_date?.slice(0, 10)} al {p.end_date?.slice(0, 10)}) {p.status === "CLOSED" ? " · [PAGADA]" : ""}
+                    {p.name} ({formatDateDMY(p.start_date)} al {formatDateDMY(p.end_date)}) {p.status === "CLOSED" ? " · [PAGADA]" : ""}
                   </MenuItem>
                 ))}
               </Select>
@@ -697,7 +1057,7 @@ export const Payroll: React.FC = () => {
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <MetricCard
-                  title="Total Día 7 Pagado"
+                  title="Total Descansos Pagados"
                   value={`S/ ${Number(summaryData.totals.total_day_7).toFixed(2)}`}
                   icon={<CardGiftcardIcon />}
                   color="#1e40af"
@@ -735,7 +1095,7 @@ export const Payroll: React.FC = () => {
           </Typography>
           <DataTable columns={historyColumns} data={paymentHistory} searchPlaceholder="Buscar en historial por trabajador..." />
         </Box>
-      ) : (
+      ) : mainTab === 2 ? (
         <Box>
           <Box sx={{ display: "flex", flexDirection: { xs: "column", sm: "row" }, gap: 1.5, justifyContent: "space-between", alignItems: { xs: "stretch", sm: "center" }, mb: 2 }}>
             <Box>
@@ -750,7 +1110,87 @@ export const Payroll: React.FC = () => {
               Nuevo Adelanto
             </Button>
           </Box>
-          <DataTable columns={advancesColumns} data={advancesList} searchPlaceholder="Buscar adelantos por trabajador..." />
+
+          {/* Quick Filters */}
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 2 }}>
+            <Chip
+              label={`Todos (${advancesList.length})`}
+              clickable
+              color={advanceFilterStatus === "ALL" ? "primary" : "default"}
+              variant={advanceFilterStatus === "ALL" ? "filled" : "outlined"}
+              onClick={() => setAdvanceFilterStatus("ALL")}
+              sx={{ fontWeight: 700 }}
+            />
+            <Chip
+              label={`🟡 Por Confirmar (${advancesList.filter((a) => a.status === "PENDING").length})`}
+              clickable
+              color={advanceFilterStatus === "PENDING" ? "warning" : "default"}
+              variant={advanceFilterStatus === "PENDING" ? "filled" : "outlined"}
+              onClick={() => setAdvanceFilterStatus("PENDING")}
+              sx={{ fontWeight: 800 }}
+            />
+            <Chip
+              label={`🟢 Confirmados (${advancesList.filter((a) => a.status === "APPROVED").length})`}
+              clickable
+              color={advanceFilterStatus === "APPROVED" ? "info" : "default"}
+              variant={advanceFilterStatus === "APPROVED" ? "filled" : "outlined"}
+              onClick={() => setAdvanceFilterStatus("APPROVED")}
+              sx={{ fontWeight: 700 }}
+            />
+            <Chip
+              label={`✔️ Descontados (${advancesList.filter((a) => a.status === "PAID").length})`}
+              clickable
+              color={advanceFilterStatus === "PAID" ? "success" : "default"}
+              variant={advanceFilterStatus === "PAID" ? "filled" : "outlined"}
+              onClick={() => setAdvanceFilterStatus("PAID")}
+              sx={{ fontWeight: 700 }}
+            />
+            <Chip
+              label={`🔴 Rechazados (${advancesList.filter((a) => a.status === "REJECTED").length})`}
+              clickable
+              color={advanceFilterStatus === "REJECTED" ? "error" : "default"}
+              variant={advanceFilterStatus === "REJECTED" ? "filled" : "outlined"}
+              onClick={() => setAdvanceFilterStatus("REJECTED")}
+              sx={{ fontWeight: 700 }}
+            />
+          </Box>
+
+          <DataTable columns={advancesColumns} data={filteredAdvances} searchPlaceholder="Buscar adelantos por trabajador..." />
+        </Box>
+      ) : (
+        <Box>
+          <Box sx={{ display: "flex", flexDirection: { xs: "column", sm: "row" }, gap: 2, justifyContent: "space-between", alignItems: { xs: "stretch", sm: "center" }, mb: 2.5 }}>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                🔄 Ciclos Mensuales y Descansos Rotativos por Empleado
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Monitoreo individual según fecha de ingreso de cada trabajador y su saldo de 4 descansos al mes.
+              </Typography>
+            </Box>
+            <Box sx={{ display: "flex", gap: 1.5, alignItems: "center" }}>
+              <TextField
+                size="small"
+                label="Fecha de Referencia"
+                type="date"
+                InputLabelProps={{ shrink: true }}
+                value={cycleRefDate}
+                onChange={(e) => {
+                  setCycleRefDate(e.target.value);
+                  loadEmployeeCycles(e.target.value);
+                }}
+              />
+              <Button
+                variant="outlined"
+                startIcon={<RefreshIcon />}
+                onClick={() => loadEmployeeCycles()}
+                disabled={loadingCycles}
+              >
+                Actualizar
+              </Button>
+            </Box>
+          </Box>
+          <DataTable columns={cycleColumns} data={employeeCycles} searchPlaceholder="Buscar por código o trabajador..." />
         </Box>
       )}
 
@@ -794,6 +1234,18 @@ export const Payroll: React.FC = () => {
               value={advReason}
               onChange={(e) => setAdvReason(e.target.value)}
             />
+
+            <FormControl fullWidth>
+              <InputLabel>Estado Inicial de la Solicitud</InputLabel>
+              <Select
+                value={advStatus}
+                label="Estado Inicial de la Solicitud"
+                onChange={(e) => setAdvStatus(e.target.value)}
+              >
+                <MenuItem value="APPROVED">🟢 Confirmado / Aprobado (Listo para descontar en planilla)</MenuItem>
+                <MenuItem value="PENDING">🟡 Pendiente de Confirmación (Guardar para revisión posterior)</MenuItem>
+              </Select>
+            </FormControl>
           </DialogContent>
           <DialogActions sx={{ p: 2.5 }}>
             <Button onClick={() => setShowAddAdvanceModal(false)} color="inherit">
@@ -833,7 +1285,7 @@ export const Payroll: React.FC = () => {
                 {Number(selectedEntry.day_7_amount) > 0 && (
                   <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                     <Typography variant="body2" color="primary.main">
-                      + Dominical / Día 7 Bonificado ({selectedEntry.day_7_paid_days}d)
+                      + Descansos Mensuales Remunerados ({Number(selectedEntry.day_7_paid_days)}d)
                     </Typography>
                     <Typography variant="body2" color="primary.main" sx={{ fontWeight: 700 }}>
                       + S/ {Number(selectedEntry.day_7_amount).toFixed(2)}
@@ -1138,7 +1590,7 @@ export const Payroll: React.FC = () => {
                 {selectedEntry.full_name}
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                Código: {selectedEntry.employee_code} · Puesto: {selectedEntry.position || "Operativo"} · Contrato: {selectedEntry.contract_type_snapshot === "CONTRACT" ? "Por Contrata (Día 7)" : "Por Días"}
+                Código: {selectedEntry.employee_code} · Puesto: {selectedEntry.position || "Operativo"} · Contrato: {selectedEntry.contract_type_snapshot === "CONTRACT" ? "Por Contrata (4 Descansos/Mes)" : "Por Días"}
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 Tarifa Diaria Base: S/ {Number(selectedEntry.daily_rate_snapshot).toFixed(2)} · H.E. S/ {Number(selectedEntry.ot_rate_snapshot || 8).toFixed(2)}/hora
@@ -1161,7 +1613,7 @@ export const Payroll: React.FC = () => {
                     {Number(selectedEntry.day_7_amount) > 0 && (
                       <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                         <Typography variant="body2" color="primary.main" sx={{ fontWeight: 700 }}>
-                          + Dominical / Día 7 Bonificado ({selectedEntry.day_7_paid_days} días)
+                          + Descansos Mensuales Remunerados ({Number(selectedEntry.day_7_paid_days)} días de 4)
                         </Typography>
                         <Typography variant="body2" color="primary.main" sx={{ fontWeight: 700 }}>
                           + S/ {Number(selectedEntry.day_7_amount).toFixed(2)}
@@ -1240,42 +1692,45 @@ export const Payroll: React.FC = () => {
               </Box>
             )}
 
-            {/* TAB 1: Horario */}
+            {/* TAB 1: Horario & Régimen */}
             {receiptTab === 1 && (
-              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                  Horario Asignado: <Chip label={selectedEntry.schedule_name || "Sin Horario Asignado"} size="small" color="primary" sx={{ fontWeight: 700 }} />
-                </Typography>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "#f8fafc" }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1e293b", mb: 0.5 }}>
+                    Plantilla de Horario Asignada:
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 700, color: "primary.main" }}>
+                    {selectedEntry.schedule_name || "Turno General / Por Defecto"}
+                  </Typography>
+                </Paper>
 
-                <Typography variant="body2" color="text.secondary">
-                  Días laborales obligatorios configurados para el trabajador:
-                </Typography>
-
-                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                  {ALL_DAYS.map((d) => {
-                    const isWorkDay = selectedEntry.work_days?.includes(d.key);
-                    return (
-                      <Paper
-                        key={d.key}
-                        variant="outlined"
-                        sx={{
-                          p: 1.5,
-                          px: 2,
-                          textAlign: "center",
-                          bgcolor: isWorkDay ? "#eff6ff" : "#f8fafc",
-                          borderColor: isWorkDay ? "#3b82f6" : "#cbd5e1",
-                        }}
-                      >
-                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: isWorkDay ? "#1d4ed8" : "#64748b" }}>
-                          {d.label}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: isWorkDay ? "#2563eb" : "#94a3b8", fontWeight: 700 }}>
-                          {isWorkDay ? "Laboral" : "Descanso"}
-                        </Typography>
-                      </Paper>
-                    );
-                  })}
-                </Box>
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#1e293b", mb: 1 }}>
+                    Régimen y Modalidad de Descansos
+                  </Typography>
+                  {selectedEntry.contract_type_snapshot === "CONTRACT" ? (
+                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                      <Chip
+                        label="Horario Rotativo (4 Descansos Mensuales Remunerados)"
+                        color="primary"
+                        sx={{ fontWeight: 700, width: "fit-content" }}
+                      />
+                      <Typography variant="body2" color="text.secondary">
+                        El personal goza de una cuota de hasta 4.0 días de descanso remunerados por ciclo mensual, distribuidos de forma rotativa según la programación operativa y registrados mediante el kiosco o panel web.
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                      <Chip
+                        label="Por Día Laborado"
+                        sx={{ fontWeight: 700, width: "fit-content" }}
+                      />
+                      <Typography variant="body2" color="text.secondary">
+                        Liquidación calculada estrictamente en base a las asistencias y horas efectivas registradas en el período.
+                      </Typography>
+                    </Box>
+                  )}
+                </Paper>
               </Box>
             )}
 
@@ -1286,24 +1741,79 @@ export const Payroll: React.FC = () => {
                   Asistencias Diarias Registradas ({selectedEntry.daily_records?.length || 0} días evaluados)
                 </Typography>
 
-                <Grid container spacing={1}>
-                  {selectedEntry.daily_records?.map((d: any) => (
-                    <Grid item xs={6} sm={4} md={3} key={d.operational_date}>
-                      <Paper variant="outlined" sx={{ p: 1, bgcolor: "#ffffff" }}>
-                        <Typography variant="caption" sx={{ fontWeight: 800, display: "block" }}>
-                          {d.operational_date}
-                        </Typography>
-                        <Box sx={{ mt: 0.5 }}>
-                          <StatusChip status={d.status} />
-                        </Box>
-                        {d.late_minutes > 0 && d.status !== "JUSTIFIED" && (
-                          <Typography variant="caption" color="error.main" sx={{ display: "block", mt: 0.5, fontWeight: 700 }}>
-                            {d.late_minutes}m tardanza
-                          </Typography>
-                        )}
-                      </Paper>
-                    </Grid>
-                  ))}
+                <Grid container spacing={1.5}>
+                  {selectedEntry.daily_records?.map((d: any) => {
+                    const dt = formatCalendarDate(d.operational_date);
+                    return (
+                      <Grid item xs={6} sm={4} md={3} key={d.operational_date}>
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            p: 1.5,
+                            bgcolor: dt.isSunday ? "#f8fafc" : "#ffffff",
+                            borderRadius: 2,
+                            borderColor: dt.isSunday ? "#cbd5e1" : "#e2e8f0",
+                            transition: "all 0.15s ease",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 0.8,
+                            "&:hover": {
+                              borderColor: "primary.main",
+                              boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+                            },
+                          }}
+                        >
+                          <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                            <Typography
+                              variant="body2"
+                              sx={{
+                                fontWeight: 800,
+                                color: dt.isSunday ? "primary.main" : "#0f172a",
+                                fontSize: "0.85rem",
+                              }}
+                            >
+                              {dt.dayName}, {dt.dayNum} {dt.monthName}
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: "#94a3b8", fontWeight: 700, fontSize: "0.72rem" }}
+                            >
+                              {dt.year}
+                            </Typography>
+                          </Box>
+
+                          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, alignItems: "center" }}>
+                            <StatusChip status={d.status} />
+                            {d.day_off_type && (
+                              <Chip
+                                label={
+                                  d.day_off_type === "MORNING"
+                                    ? "Mañana"
+                                    : d.day_off_type === "AFTERNOON"
+                                    ? "Tarde"
+                                    : "Día Completo"
+                                }
+                                size="small"
+                                variant="outlined"
+                                color="info"
+                                sx={{ height: 22, fontSize: "0.68rem", fontWeight: 700 }}
+                              />
+                            )}
+                          </Box>
+
+                          {d.late_minutes > 0 && d.status !== "JUSTIFIED" && (
+                            <Typography
+                              variant="caption"
+                              color="error.main"
+                              sx={{ display: "block", fontWeight: 700, fontSize: "0.75rem" }}
+                            >
+                              ⚠️ {d.late_minutes}m tardanza
+                            </Typography>
+                          )}
+                        </Paper>
+                      </Grid>
+                    );
+                  })}
                 </Grid>
               </Box>
             )}

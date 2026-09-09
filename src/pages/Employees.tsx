@@ -15,6 +15,11 @@ import {
   Paper,
   Tabs,
   Tab,
+  FormControlLabel,
+  Switch,
+  RadioGroup,
+  Radio,
+  FormControl,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import EditIcon from "@mui/icons-material/Edit";
@@ -22,6 +27,10 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import CloseIcon from "@mui/icons-material/Close";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import BeachAccessIcon from "@mui/icons-material/BeachAccess";
+import PersonIcon from "@mui/icons-material/Person";
+import WorkIcon from "@mui/icons-material/Work";
+import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
 import { ColumnDef } from "@tanstack/react-table";
 import { apiFetch } from "../services/api";
 import { PageHeader } from "../components/PageHeader";
@@ -37,6 +46,19 @@ function parseWorkDays(raw: any): string[] {
     return cleaned.split(",").filter(Boolean);
   }
   return [];
+}
+
+function formatDateDMY(rawDate: any): string {
+  if (!rawDate) return "-";
+  const str = String(rawDate).slice(0, 10);
+  const [yStr, mStr, dStr] = str.split("-");
+  const y = Number(yStr);
+  const m = Number(mStr);
+  const d = Number(dStr);
+  if (!y || !m || !d) return str;
+  const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+  const monthName = months[m - 1] || mStr;
+  return `${String(d).padStart(2, "0")}/${monthName}/${y}`;
 }
 
 const ALL_DAYS = [
@@ -59,7 +81,52 @@ export const Employees: React.FC = () => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedEmp, setSelectedEmp] = useState<any>(null);
   const [empDailyList, setEmpDailyList] = useState<any[]>([]);
+  const [empDayOffStats, setEmpDayOffStats] = useState<any>(null);
   const [detailTab, setDetailTab] = useState(0);
+
+  // Modal de Asignar Descanso a Trabajador
+  const [showRestModal, setShowRestModal] = useState(false);
+  const [restDate, setRestDate] = useState(new Date().toISOString().slice(0, 10));
+  const [restSlot, setRestSlot] = useState("FULL");
+  const [restNotes, setRestNotes] = useState("");
+  const [savingRest, setSavingRest] = useState(false);
+
+  const openRestDialog = () => {
+    setRestDate(new Date().toISOString().slice(0, 10));
+    setRestSlot("FULL");
+    setRestNotes("");
+    setShowRestModal(true);
+  };
+
+  const handleSaveRest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEmp) return;
+    setSavingRest(true);
+    try {
+      await apiFetch("/attendance/register-day-off", {
+        method: "POST",
+        body: JSON.stringify({
+          employee_id: selectedEmp.id,
+          date: restDate,
+          fraction: restSlot === "FULL" ? 1.0 : 0.5,
+          time_slot: restSlot,
+          notes: restNotes || "Registrado desde Ficha de Empleado",
+        }),
+      });
+      setShowRestModal(false);
+      const [history, stats] = await Promise.all([
+        apiFetch(`/attendance/daily?employee_id=${selectedEmp.id}`).catch(() => []),
+        apiFetch(`/attendance/day-off-balance/${selectedEmp.id}`).catch(() => null),
+      ]);
+      setEmpDailyList(history || []);
+      setEmpDayOffStats(stats);
+      loadData();
+    } catch (err: any) {
+      alert(err.message || "Error al registrar descanso");
+    } finally {
+      setSavingRest(false);
+    }
+  };
 
   // Form State
   const [documentNumber, setDocumentNumber] = useState("");
@@ -71,6 +138,7 @@ export const Employees: React.FC = () => {
   const [dailyRate, setDailyRate] = useState("50.00");
   const [otRate, setOtRate] = useState("8.00");
   const [contractType, setContractType] = useState("CONTRACT");
+  const [allowHalfDayOff, setAllowHalfDayOff] = useState<boolean>(false);
   const [workDays, setWorkDays] = useState<string[]>(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]);
   const [scheduleId, setScheduleId] = useState<string>("");
 
@@ -102,6 +170,7 @@ export const Employees: React.FC = () => {
     setDailyRate("50.00");
     setOtRate("8.00");
     setContractType("CONTRACT");
+    setAllowHalfDayOff(false);
     setWorkDays(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"]);
     setScheduleId(schedules.length ? String(schedules[0].id) : "");
     setShowModal(true);
@@ -118,6 +187,7 @@ export const Employees: React.FC = () => {
     setDailyRate(String(emp.daily_rate || 50));
     setOtRate(String(emp.overtime_hourly_rate || 8));
     setContractType(emp.contract_type || "CONTRACT");
+    setAllowHalfDayOff(Boolean(emp.allow_half_day_off));
     setWorkDays(parseWorkDays(emp.work_days));
     setScheduleId(emp.schedule_id ? String(emp.schedule_id) : (schedules.length ? String(schedules[0].id) : ""));
     setShowModal(true);
@@ -126,10 +196,15 @@ export const Employees: React.FC = () => {
   const openDetailModal = async (emp: any) => {
     setSelectedEmp(emp);
     setDetailTab(0);
+    setEmpDayOffStats(null);
     setShowDetailModal(true);
     try {
-      const history = await apiFetch(`/attendance/daily?employee_id=${emp.id}`);
+      const [history, stats] = await Promise.all([
+        apiFetch(`/attendance/daily?employee_id=${emp.id}`).catch(() => []),
+        apiFetch(`/attendance/day-off-balance/${emp.id}`).catch(() => null),
+      ]);
       setEmpDailyList(history || []);
+      setEmpDayOffStats(stats);
     } catch (e) {
       console.error(e);
     }
@@ -154,6 +229,7 @@ export const Employees: React.FC = () => {
         daily_rate: Number(dailyRate),
         overtime_hourly_rate: Number(otRate),
         contract_type: contractType,
+        allow_half_day_off: allowHalfDayOff,
         work_days: workDays,
         schedule_id: scheduleId ? Number(scheduleId) : undefined,
       };
@@ -217,6 +293,19 @@ export const Employees: React.FC = () => {
       cell: (info) => <StatusChip status={String(info.getValue())} />,
     },
     {
+      accessorKey: "allow_half_day_off",
+      header: "Medio Día",
+      cell: (info) => (
+        <Chip
+          size="small"
+          label={info.getValue() ? "0.5d Habilitado" : "Solo 1.0d"}
+          color={info.getValue() ? "info" : "default"}
+          variant={info.getValue() ? "filled" : "outlined"}
+          sx={{ height: 22, fontSize: "0.68rem", fontWeight: 700 }}
+        />
+      ),
+    },
+    {
       accessorKey: "daily_rate",
       header: "Tarifa Diaria",
       cell: (info) => (
@@ -226,30 +315,34 @@ export const Employees: React.FC = () => {
       ),
     },
     {
-      accessorKey: "work_days",
-      header: "Días Laborales",
+      accessorKey: "contract_type",
+      header: "Régimen & Descansos",
       cell: (info) => {
-        const days: string[] = parseWorkDays(info.getValue());
+        const type = info.getValue();
+        const allowHalf = info.row.original.allow_half_day_off;
+        if (type === "CONTRACT") {
+          return (
+            <Box sx={{ display: "flex", flexDirection: "column", gap: 0.3 }}>
+              <Chip
+                label="Rotativo (4 d/mes)"
+                size="small"
+                color="primary"
+                variant="filled"
+                sx={{ height: 22, fontSize: "0.7rem", fontWeight: 700, width: "fit-content" }}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem" }}>
+                {allowHalf ? "Permite medios días (0.5d)" : "Solo días completos (1.0d)"}
+              </Typography>
+            </Box>
+          );
+        }
         return (
-          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-            {ALL_DAYS.map((d) => {
-              const active = days.includes(d.key);
-              return (
-                <Chip
-                  key={d.key}
-                  label={d.label}
-                  size="small"
-                  sx={{
-                    height: 20,
-                    fontSize: "0.65rem",
-                    fontWeight: 700,
-                    bgcolor: active ? "primary.main" : "#f1f5f9",
-                    color: active ? "#ffffff" : "#94a3b8",
-                  }}
-                />
-              );
-            })}
-          </Box>
+          <Chip
+            label="Por Día Laborado"
+            size="small"
+            variant="outlined"
+            sx={{ height: 22, fontSize: "0.7rem", fontWeight: 700, width: "fit-content" }}
+          />
         );
       },
     },
@@ -323,7 +416,7 @@ export const Employees: React.FC = () => {
                 Código: {selectedEmp.employee_code} · DNI: {selectedEmp.document_number} · Cargo: {selectedEmp.position || "Operativo"}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                Contrato: {selectedEmp.contract_type === "CONTRACT" ? "Por Contrata (Día 7)" : "Por Días"} · Tarifa: S/ {Number(selectedEmp.daily_rate).toFixed(2)}/día
+                Contrato: {selectedEmp.contract_type === "CONTRACT" ? "Por Contrata (4 Descansos Mensuales)" : "Por Días"} · Tarifa: S/ {Number(selectedEmp.daily_rate).toFixed(2)}/día
               </Typography>
             </Box>
 
@@ -331,21 +424,64 @@ export const Employees: React.FC = () => {
               <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
                   <Typography variant="subtitle1" sx={{ fontWeight: 800, display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
-                    <CalendarMonthIcon color="primary" /> Días de Trabajo Asignados (Semanal)
+                    <BeachAccessIcon color="info" /> Ciclo Mensual & Descansos Rotativos (4 al Mes)
                   </Typography>
-                  <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                    {ALL_DAYS.map((d) => {
-                      const active = selectedEmp.work_days?.includes(d.key);
+                  <Grid container spacing={2}>
+                    {(() => {
+                      const used = Number(empDayOffStats?.usedDaysOff ?? empDayOffStats?.used_days_off ?? 0);
+                      const max = Number(empDayOffStats?.maxDaysOff ?? empDayOffStats?.max_days_off ?? 4);
+                      const rem = Number(empDayOffStats?.remainingDaysOff ?? empDayOffStats?.remaining_days_off ?? Math.max(0, max - used));
+                      const cycleDays = empDayOffStats?.cycle?.cycleDays || empDayOffStats?.cycle?.daysInCycle || 30;
+                      const startStr = empDayOffStats?.cycle?.startDate ? formatDateDMY(empDayOffStats.cycle.startDate) : "";
+                      const endStr = empDayOffStats?.cycle?.endDate ? formatDateDMY(empDayOffStats.cycle.endDate) : "";
+
                       return (
-                        <Chip
-                          key={d.key}
-                          label={d.label}
-                          color={active ? "primary" : "default"}
-                          sx={{ fontWeight: 700, px: 1 }}
-                        />
+                        <>
+                          <Grid item xs={12} sm={6}>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                              Ciclo Activo ({cycleDays} días en el mes):
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: "primary.main" }}>
+                              {startStr && endStr ? `${startStr} al ${endStr}` : "Calculando..."}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Anclado a fecha de ingreso ({selectedEmp.hire_date ? formatDateDMY(selectedEmp.hire_date) : "No registrada"})
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                              Saldo de Descansos en el Ciclo:
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: used > max ? "error.main" : "success.main" }}>
+                              {empDayOffStats ? `${used} de ${max} días tomados` : "—"}
+                              {used > max && " (⚠️ Exceso)"}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Restan: <strong>{empDayOffStats ? `${rem} días` : "—"}</strong> · Medios días:{" "}
+                              <Chip
+                                size="small"
+                                label={selectedEmp.allow_half_day_off ? "Habilitado (0.5d)" : "No habilitado"}
+                                color={selectedEmp.allow_half_day_off ? "success" : "default"}
+                                sx={{ height: 18, fontSize: "0.65rem", fontWeight: 700, ml: 0.5 }}
+                              />
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} sx={{ pt: 1, display: "flex", justifyContent: "flex-end" }}>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              color="info"
+                              startIcon={<BeachAccessIcon />}
+                              onClick={openRestDialog}
+                              sx={{ fontWeight: 700 }}
+                            >
+                              + Asignar Descanso a este Trabajador
+                            </Button>
+                          </Grid>
+                        </>
                       );
-                    })}
-                  </Box>
+                    })()}
+                  </Grid>
                 </Paper>
 
                 <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
@@ -388,7 +524,7 @@ export const Employees: React.FC = () => {
 
                 <Grid container spacing={1.5}>
                   {empDailyList.map((r: any) => {
-                    const dateStr = r.operational_date?.slice(0, 10);
+                    const dateStr = formatDateDMY(r.operational_date);
                     return (
                       <Grid item xs={6} sm={4} md={3} key={r.id}>
                         <Paper
@@ -441,120 +577,159 @@ export const Employees: React.FC = () => {
         </DialogTitle>
 
         <form onSubmit={handleSubmit}>
-          <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="DNI / Documento"
-                  fullWidth
-                  required
-                  disabled={!!editId}
-                  value={documentNumber}
-                  onChange={(e) => setDocumentNumber(e.target.value)}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Cargo / Puesto"
-                  fullWidth
-                  value={position}
-                  onChange={(e) => setPosition(e.target.value)}
-                />
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Nombres"
-                  fullWidth
-                  required
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                />
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Apellidos"
-                  fullWidth
-                  required
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                />
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  select
-                  label="Tipo de Contrato"
-                  fullWidth
-                  value={contractType}
-                  onChange={(e) => setContractType(e.target.value)}
-                >
-                  <MenuItem value="CONTRACT">Por Contrata (Aplica Día 7)</MenuItem>
-                  <MenuItem value="PER_DAY">Por Días Laborados</MenuItem>
-                </TextField>
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  select
-                  label="Horario Asignado"
-                  fullWidth
-                  value={scheduleId}
-                  onChange={(e) => setScheduleId(e.target.value)}
-                >
-                  {schedules.map((s) => (
-                    <MenuItem key={s.id} value={s.id}>
-                      {s.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Tarifa Diaria (S/)"
-                  type="number"
-                  fullWidth
-                  required
-                  value={dailyRate}
-                  onChange={(e) => setDailyRate(e.target.value)}
-                />
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  label="Tarifa Hora Extra (S/)"
-                  type="number"
-                  fullWidth
-                  required
-                  value={otRate}
-                  onChange={(e) => setOtRate(e.target.value)}
-                />
-              </Grid>
-            </Grid>
-
-            {/* Workdays chips selector */}
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary", textTransform: "uppercase", display: "block", mb: 1 }}>
-                Días Laborales del Trabajador (Domingo a Domingo)
+          <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {/* 1. Datos Personales */}
+            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "primary.main", display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                <PersonIcon fontSize="small" /> 1. Datos Personales
               </Typography>
-              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                {ALL_DAYS.map((d) => {
-                  const active = workDays.includes(d.key);
-                  return (
-                    <Chip
-                      key={d.key}
-                      label={d.label}
-                      clickable
-                      color={active ? "primary" : "default"}
-                      onClick={() => handleDayToggle(d.key)}
-                      sx={{ fontWeight: 700 }}
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="DNI / Documento"
+                    fullWidth
+                    required
+                    disabled={!!editId}
+                    value={documentNumber}
+                    onChange={(e) => setDocumentNumber(e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Teléfono / Móvil"
+                    fullWidth
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Nombres"
+                    fullWidth
+                    required
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Apellidos"
+                    fullWidth
+                    required
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    label="Cargo / Puesto"
+                    fullWidth
+                    value={position}
+                    onChange={(e) => setPosition(e.target.value)}
+                  />
+                </Grid>
+              </Grid>
+            </Paper>
+
+            {/* 2. Régimen Laboral & Ciclo */}
+            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "primary.main", display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                <WorkIcon fontSize="small" /> 2. Régimen Laboral & Ciclo de Pago
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    select
+                    label="Tipo de Contrato"
+                    fullWidth
+                    value={contractType}
+                    onChange={(e) => setContractType(e.target.value)}
+                  >
+                    <MenuItem value="CONTRACT">Por Contrata (4 Descansos/Mes)</MenuItem>
+                    <MenuItem value="PER_DAY">Por Días Laborados</MenuItem>
+                  </TextField>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Fecha de Ingreso (Ancla del Ciclo)"
+                    type="date"
+                    fullWidth
+                    required
+                    InputLabelProps={{ shrink: true }}
+                    value={hireDate}
+                    onChange={(e) => setHireDate(e.target.value)}
+                    helperText="Define el inicio de ciclo mensual del trabajador (ej: día 8)"
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <TextField
+                    select
+                    label="Horario Asignado"
+                    fullWidth
+                    value={scheduleId}
+                    onChange={(e) => setScheduleId(e.target.value)}
+                  >
+                    {schedules.map((s) => (
+                      <MenuItem key={s.id} value={s.id}>
+                        {s.name}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+              </Grid>
+            </Paper>
+
+            {/* 3. Tarifas & Permisos */}
+            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "primary.main", display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+                <AttachMoneyIcon fontSize="small" /> 3. Tarifas & Política de Descansos
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Tarifa Diaria (S/)"
+                    type="number"
+                    fullWidth
+                    required
+                    value={dailyRate}
+                    onChange={(e) => setDailyRate(e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label="Tarifa Hora Extra (S/)"
+                    type="number"
+                    fullWidth
+                    required
+                    value={otRate}
+                    onChange={(e) => setOtRate(e.target.value)}
+                  />
+                </Grid>
+                <Grid item xs={12}>
+                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: "#f8fafc" }}>
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={allowHalfDayOff}
+                          onChange={(e) => setAllowHalfDayOff(e.target.checked)}
+                          color="primary"
+                        />
+                      }
+                      label={
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                            Permitir Descansos de Medio Día (0.5 días)
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Habilita la opción de descansos fraccionados en el kiosco. Dos medios días equivalen a un día completo (máximo 4 días al mes).
+                          </Typography>
+                        </Box>
+                      }
                     />
-                  );
-                })}
-              </Box>
-            </Box>
+                  </Paper>
+                </Grid>
+              </Grid>
+            </Paper>
           </DialogContent>
 
           <DialogActions sx={{ p: 2.5 }}>
@@ -567,6 +742,80 @@ export const Employees: React.FC = () => {
           </DialogActions>
         </form>
       </Dialog>
+
+      {/* Modal Asignar Descanso a este Trabajador */}
+      {selectedEmp && (
+        <Dialog open={showRestModal} onClose={() => setShowRestModal(false)} maxWidth="xs" fullWidth>
+          <DialogTitle sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: 800, color: "primary.main" }}>
+            🏖️ Asignar Descanso
+            <IconButton onClick={() => setShowRestModal(false)} size="small">
+              <CloseIcon />
+            </IconButton>
+          </DialogTitle>
+          <form onSubmit={handleSaveRest}>
+            <DialogContent dividers sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <Box sx={{ p: 1.5, bgcolor: "#f8fafc", borderRadius: 2 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                  {selectedEmp.first_name} {selectedEmp.last_name}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Código: {selectedEmp.employee_code} · Medios días: {selectedEmp.allow_half_day_off ? "Permitido" : "No permitido"}
+                </Typography>
+              </Box>
+
+              <TextField
+                label="Fecha del Descanso"
+                type="date"
+                fullWidth
+                required
+                value={restDate}
+                onChange={(e) => setRestDate(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+              />
+
+              <FormControl component="fieldset">
+                <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary", textTransform: "uppercase", mb: 1 }}>
+                  Modalidad de Descanso
+                </Typography>
+                <RadioGroup
+                  value={restSlot}
+                  onChange={(e) => setRestSlot(e.target.value)}
+                >
+                  <FormControlLabel value="FULL" control={<Radio />} label="Día Completo (1.0 día)" />
+                  <FormControlLabel
+                    value="MORNING"
+                    disabled={!selectedEmp.allow_half_day_off}
+                    control={<Radio />}
+                    label="Medio Día — Turno Mañana (0.5 día)"
+                  />
+                  <FormControlLabel
+                    value="AFTERNOON"
+                    disabled={!selectedEmp.allow_half_day_off}
+                    control={<Radio />}
+                    label="Medio Día — Turno Tarde (0.5 día)"
+                  />
+                </RadioGroup>
+              </FormControl>
+
+              <TextField
+                label="Notas / Motivo"
+                fullWidth
+                placeholder="ej. Solicitud directa / coordinado con jefe"
+                value={restNotes}
+                onChange={(e) => setRestNotes(e.target.value)}
+              />
+            </DialogContent>
+            <DialogActions sx={{ p: 2 }}>
+              <Button onClick={() => setShowRestModal(false)} color="inherit">
+                Cancelar
+              </Button>
+              <Button type="submit" variant="contained" color="primary" disabled={savingRest} sx={{ fontWeight: 700 }}>
+                {savingRest ? "Guardando..." : "Confirmar Descanso"}
+              </Button>
+            </DialogActions>
+          </form>
+        </Dialog>
+      )}
     </Box>
   );
 };
