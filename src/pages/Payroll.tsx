@@ -137,6 +137,8 @@ export const Payroll: React.FC = () => {
   const [advReason, setAdvReason] = useState<string>("");
   const [advStatus, setAdvStatus] = useState<string>("APPROVED");
   const [advanceFilterStatus, setAdvanceFilterStatus] = useState<string>("ALL");
+  const [advanceStartDate, setAdvanceStartDate] = useState<string>("");
+  const [advanceEndDate, setAdvanceEndDate] = useState<string>("");
   const [creatingAdvance, setCreatingAdvance] = useState(false);
 
   // Period Form State
@@ -653,9 +655,21 @@ export const Payroll: React.FC = () => {
   }, [advancesList]);
 
   const filteredAdvances = useMemo(() => {
-    if (advanceFilterStatus === "ALL") return advancesList;
-    return advancesList.filter((a) => a.status === advanceFilterStatus);
-  }, [advancesList, advanceFilterStatus]);
+    return advancesList.filter((a) => {
+      if (advanceFilterStatus !== "ALL" && a.status !== advanceFilterStatus) {
+        return false;
+      }
+      if (advanceStartDate) {
+        const createdDate = String(a.created_at || "").slice(0, 10);
+        if (createdDate && createdDate < advanceStartDate) return false;
+      }
+      if (advanceEndDate) {
+        const createdDate = String(a.created_at || "").slice(0, 10);
+        if (createdDate && createdDate > advanceEndDate) return false;
+      }
+      return true;
+    });
+  }, [advancesList, advanceFilterStatus, advanceStartDate, advanceEndDate]);
 
   // TanStack Table columns - Adelantos de Sueldo
   const advancesColumns: ColumnDef<any>[] = [
@@ -1111,48 +1125,85 @@ export const Payroll: React.FC = () => {
             </Button>
           </Box>
 
-          {/* Quick Filters */}
-          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mb: 2 }}>
-            <Chip
-              label={`Todos (${advancesList.length})`}
-              clickable
-              color={advanceFilterStatus === "ALL" ? "primary" : "default"}
-              variant={advanceFilterStatus === "ALL" ? "filled" : "outlined"}
-              onClick={() => setAdvanceFilterStatus("ALL")}
-              sx={{ fontWeight: 700 }}
-            />
-            <Chip
-              label={`🟡 Por Confirmar (${advancesList.filter((a) => a.status === "PENDING").length})`}
-              clickable
-              color={advanceFilterStatus === "PENDING" ? "warning" : "default"}
-              variant={advanceFilterStatus === "PENDING" ? "filled" : "outlined"}
-              onClick={() => setAdvanceFilterStatus("PENDING")}
-              sx={{ fontWeight: 800 }}
-            />
-            <Chip
-              label={`🟢 Confirmados (${advancesList.filter((a) => a.status === "APPROVED").length})`}
-              clickable
-              color={advanceFilterStatus === "APPROVED" ? "info" : "default"}
-              variant={advanceFilterStatus === "APPROVED" ? "filled" : "outlined"}
-              onClick={() => setAdvanceFilterStatus("APPROVED")}
-              sx={{ fontWeight: 700 }}
-            />
-            <Chip
-              label={`✔️ Descontados (${advancesList.filter((a) => a.status === "PAID").length})`}
-              clickable
-              color={advanceFilterStatus === "PAID" ? "success" : "default"}
-              variant={advanceFilterStatus === "PAID" ? "filled" : "outlined"}
-              onClick={() => setAdvanceFilterStatus("PAID")}
-              sx={{ fontWeight: 700 }}
-            />
-            <Chip
-              label={`🔴 Rechazados (${advancesList.filter((a) => a.status === "REJECTED").length})`}
-              clickable
-              color={advanceFilterStatus === "REJECTED" ? "error" : "default"}
-              variant={advanceFilterStatus === "REJECTED" ? "filled" : "outlined"}
-              onClick={() => setAdvanceFilterStatus("REJECTED")}
-              sx={{ fontWeight: 700 }}
-            />
+          {/* Date Range & Quick Filters */}
+          <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, gap: 2, alignItems: { xs: "stretch", md: "center" }, justifyContent: "space-between", mb: 2 }}>
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+              <Chip
+                label={`Todos (${advancesList.length})`}
+                clickable
+                color={advanceFilterStatus === "ALL" ? "primary" : "default"}
+                variant={advanceFilterStatus === "ALL" ? "filled" : "outlined"}
+                onClick={() => setAdvanceFilterStatus("ALL")}
+                sx={{ fontWeight: 700 }}
+              />
+              <Chip
+                label={`🟡 Por Confirmar (${advancesList.filter((a) => a.status === "PENDING").length})`}
+                clickable
+                color={advanceFilterStatus === "PENDING" ? "warning" : "default"}
+                variant={advanceFilterStatus === "PENDING" ? "filled" : "outlined"}
+                onClick={() => setAdvanceFilterStatus("PENDING")}
+                sx={{ fontWeight: 800 }}
+              />
+              <Chip
+                label={`🟢 Confirmados (${advancesList.filter((a) => a.status === "APPROVED").length})`}
+                clickable
+                color={advanceFilterStatus === "APPROVED" ? "info" : "default"}
+                variant={advanceFilterStatus === "APPROVED" ? "filled" : "outlined"}
+                onClick={() => setAdvanceFilterStatus("APPROVED")}
+                sx={{ fontWeight: 700 }}
+              />
+              <Chip
+                label={`✔️ Descontados (${advancesList.filter((a) => a.status === "PAID").length})`}
+                clickable
+                color={advanceFilterStatus === "PAID" ? "success" : "default"}
+                variant={advanceFilterStatus === "PAID" ? "filled" : "outlined"}
+                onClick={() => setAdvanceFilterStatus("PAID")}
+                sx={{ fontWeight: 700 }}
+              />
+              <Chip
+                label={`🔴 Rechazados (${advancesList.filter((a) => a.status === "REJECTED").length})`}
+                clickable
+                color={advanceFilterStatus === "REJECTED" ? "error" : "default"}
+                variant={advanceFilterStatus === "REJECTED" ? "filled" : "outlined"}
+                onClick={() => setAdvanceFilterStatus("REJECTED")}
+                sx={{ fontWeight: 700 }}
+              />
+            </Box>
+
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+              <TextField
+                size="small"
+                label="Desde"
+                type="date"
+                value={advanceStartDate}
+                onChange={(e) => setAdvanceStartDate(e.target.value)}
+                slotProps={{ inputLabel: { shrink: true } }}
+                sx={{ width: 145 }}
+              />
+              <TextField
+                size="small"
+                label="Hasta"
+                type="date"
+                value={advanceEndDate}
+                onChange={(e) => setAdvanceEndDate(e.target.value)}
+                slotProps={{ inputLabel: { shrink: true } }}
+                sx={{ width: 145 }}
+              />
+              {(advanceStartDate || advanceEndDate) && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="inherit"
+                  onClick={() => {
+                    setAdvanceStartDate("");
+                    setAdvanceEndDate("");
+                  }}
+                  sx={{ textTransform: "none", fontSize: "0.8rem" }}
+                >
+                  Limpiar fechas
+                </Button>
+              )}
+            </Box>
           </Box>
 
           <DataTable columns={advancesColumns} data={filteredAdvances} searchPlaceholder="Buscar adelantos por trabajador..." />
