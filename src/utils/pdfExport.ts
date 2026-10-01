@@ -52,7 +52,10 @@ export function exportAttendanceReportToPdf(data: AttendanceReportData): void {
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8.5);
   doc.setTextColor(226, 232, 240);
-  doc.text("REPORTE DETALLADO DE ASISTENCIA Y LIQUIDACIÓN PROYECTADA EN TIEMPO REAL", marginX, 16);
+  const pdfSubTitle = period.report_type_label
+    ? `MODALIDAD: ${period.report_type_label.toUpperCase()} - LIQUIDACIÓN EN VIVO`
+    : "REPORTE DETALLADO DE ASISTENCIA Y LIQUIDACIÓN PROYECTADA EN TIEMPO REAL";
+  doc.text(pdfSubTitle, marginX, 16);
 
   // Metadatos a la derecha en la franja
   const nowStr = new Date().toLocaleString("es-PE");

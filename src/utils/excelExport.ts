@@ -22,6 +22,8 @@ export interface AttendanceReportData {
     start_date: string;
     end_date: string;
     total_calendar_days: number;
+    report_type_label?: string;
+    cycle_description?: string;
   };
   summary: {
     total_calendar_days: number;
@@ -122,7 +124,10 @@ export async function exportAttendanceReportToExcel(data: AttendanceReportData):
 
   sheet.mergeCells("B3:M3");
   const subTitleCell = sheet.getCell("B3");
-  subTitleCell.value = `REPORTE DE ASISTENCIA Y LIQUIDACIÓN PROYECTADA EN TIEMPO REAL`;
+  const reportSub = period.report_type_label
+    ? `REPORTE: ${period.report_type_label.toUpperCase()} - LIQUIDACIÓN EN VIVO`
+    : `REPORTE DE ASISTENCIA Y LIQUIDACIÓN PROYECTADA EN TIEMPO REAL`;
+  subTitleCell.value = reportSub;
   subTitleCell.font = { name: "Segoe UI", size: 11, bold: true, color: { argb: "1E293B" } };
   subTitleCell.alignment = { horizontal: "center", vertical: "middle" };
   subTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "E2E8F0" } };
@@ -131,7 +136,8 @@ export async function exportAttendanceReportToExcel(data: AttendanceReportData):
   sheet.mergeCells("B4:M4");
   const metaCell = sheet.getCell("B4");
   const nowFormatted = new Date().toLocaleString("es-PE");
-  metaCell.value = `Período evaluado: ${period.start_date} al ${period.end_date}  |  Fecha de emisión: ${nowFormatted}  |  Cálculo directo sin cerrar planilla`;
+  const cycleExtra = period.cycle_description ? `  |  ${period.cycle_description}` : "";
+  metaCell.value = `Período evaluado: ${period.start_date} al ${period.end_date}${cycleExtra}  |  Emisión: ${nowFormatted}  |  Cálculo directo sin cerrar planilla`;
   metaCell.font = { name: "Segoe UI", size: 9, italic: true, color: { argb: "64748B" } };
   metaCell.alignment = { horizontal: "center", vertical: "middle" };
   sheet.getRow(4).height = 20;

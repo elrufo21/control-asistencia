@@ -27,6 +27,12 @@ import {
   TableRow,
   TableCell,
   TableContainer,
+  ToggleButton,
+  ToggleButtonGroup,
+  Radio,
+  RadioGroup,
+  FormControlLabel,
+  Tooltip,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -42,10 +48,20 @@ import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import EventBusyIcon from "@mui/icons-material/EventBusy";
+import SyncAltIcon from "@mui/icons-material/SyncAlt";
+import DateRangeIcon from "@mui/icons-material/DateRange";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import { apiFetch } from "../services/api";
 import { exportAttendanceReportToExcel, AttendanceReportData } from "../utils/excelExport";
 import { exportAttendanceReportToPdf } from "../utils/pdfExport";
-import { getLocalTodayStr, getFirstDayOfMonthStr, getLastDayOfMonthStr, getCycleDatesForHireDate, formatAttendanceDate } from "../utils/dateUtils";
+import {
+  getLocalTodayStr,
+  getFirstDayOfMonthStr,
+  getLastDayOfMonthStr,
+  generateEmployeeLaborCycles,
+  EmployeeLaborCycle,
+  formatAttendanceDate,
+} from "../utils/dateUtils";
 
 interface AttendanceReportModalProps {
   open: boolean;
@@ -73,7 +89,10 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
   const currentMonthNum = Number(currentMonthStr);
   const defaultMonthStr = `${currentYearStr}-${currentMonthStr}`;
 
-  const [dateMode, setDateMode] = useState<"MONTH" | "CUSTOM">("MONTH");
+  // Modos de período: CYCLE (según ingreso) | MONTH (mes calendario) | CUSTOM (fecha a fecha)
+  const [dateMode, setDateMode] = useState<"CYCLE" | "MONTH" | "CUSTOM">("CYCLE");
+  const [selectedCycleId, setSelectedCycleId] = useState<string>("cycle-0");
+  const [cutoffMode, setCutoffMode] = useState<"30_DAYS" | "SAME_DAY">("30_DAYS");
   const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonthStr);
   const [startDate, setStartDate] = useState<string>(
     initialStartDate || getFirstDayOfMonthStr(currentYear, currentMonthNum)
@@ -93,6 +112,17 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
   const [exportingExcel, setExportingExcel] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
 
+  // Empleado seleccionado actualmente
+  const selectedEmp = useMemo(() => {
+    return employees.find((e) => String(e.id) === String(selectedEmpId));
+  }, [employees, selectedEmpId]);
+
+  // Ciclos laborales calculados según fecha de ingreso
+  const laborCycles = useMemo<EmployeeLaborCycle[]>(() => {
+    if (!selectedEmp?.hire_date) return [];
+    return generateEmployeeLaborCycles(selectedEmp.hire_date, new Date(), 6);
+  }, [selectedEmp]);
+
   // Cargar lista de empleados al abrir
   useEffect(() => {
     if (open) {
@@ -107,12 +137,35 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
     }
   }, [initialEmployeeId]);
 
-  // Al seleccionar empleado o fechas, cargar reporte
+  // Cuando cambia el empleado seleccionado, inicializar su ciclo o mes
   useEffect(() => {
-    if (open && selectedEmpId) {
+    if (!selectedEmp) return;
+
+    if (selectedEmp.hire_date) {
+      const cycles = generateEmployeeLaborCycles(selectedEmp.hire_date, new Date(), 6);
+      if (cycles.length > 0) {
+        const cur = cycles[0];
+        setSelectedCycleId(cur.id);
+        if (dateMode === "CYCLE") {
+          setStartDate(cur.startDate);
+          setEndDate(cutoffMode === "SAME_DAY" ? cur.endDateSameDay : cur.endDate30Days);
+        }
+      }
+    } else {
+      // Si el empleado no tiene fecha de ingreso, conmutar a mes calendario
+      if (dateMode === "CYCLE") {
+        setDateMode("MONTH");
+        applyMonth(selectedMonth);
+      }
+    }
+  }, [selectedEmpId]);
+
+  // Al cambiar empleado, fechas o modalidad, recargar el reporte
+  useEffect(() => {
+    if (open && selectedEmpId && startDate && endDate) {
       fetchReport();
     }
-  }, [open, selectedEmpId, dateMode, selectedMonth, startDate, endDate]);
+  }, [open, selectedEmpId, startDate, endDate, dateMode, cutoffMode]);
 
   async function loadEmployees() {
     try {
@@ -120,16 +173,54 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
       const list = data.items || [];
       setEmployees(list);
       if (!selectedEmpId && list.length > 0) {
-        if (initialEmployeeId) {
-          setSelectedEmpId(String(initialEmployeeId));
-        } else {
-          setSelectedEmpId(String(list[0].id));
-        }
+        const defaultId = initialEmployeeId ? String(initialEmployeeId) : String(list[0].id);
+        setSelectedEmpId(defaultId);
       }
     } catch (e: any) {
       console.error("Error al cargar empleados:", e);
     }
   }
+
+  // Aplicar un ciclo laboral específico
+  const applyCycle = (cycleId: string, currentCutoff: "30_DAYS" | "SAME_DAY" = cutoffMode) => {
+    const cycle = laborCycles.find((c) => c.id === cycleId) || laborCycles[0];
+    if (cycle) {
+      setSelectedCycleId(cycle.id);
+      setStartDate(cycle.startDate);
+      setEndDate(currentCutoff === "SAME_DAY" ? cycle.endDateSameDay : cycle.endDate30Days);
+    }
+  };
+
+  // Aplicar un mes calendario específico
+  const applyMonth = (mStr: string) => {
+    setSelectedMonth(mStr);
+    const [yStr, mNumStr] = mStr.split("-");
+    const y = Number(yStr);
+    const m = Number(mNumStr);
+    setStartDate(getFirstDayOfMonthStr(y, m));
+    setEndDate(getLastDayOfMonthStr(y, m));
+  };
+
+  // Cambio de modalidad de fecha
+  const handleModeChange = (newMode: "CYCLE" | "MONTH" | "CUSTOM") => {
+    if (!newMode) return;
+    setDateMode(newMode);
+    if (newMode === "CYCLE") {
+      if (laborCycles.length > 0) {
+        applyCycle(selectedCycleId || laborCycles[0].id, cutoffMode);
+      }
+    } else if (newMode === "MONTH") {
+      applyMonth(selectedMonth);
+    }
+  };
+
+  // Cambio de tipo de corte dentro del ciclo
+  const handleCutoffChange = (newCutoff: "30_DAYS" | "SAME_DAY") => {
+    setCutoffMode(newCutoff);
+    if (dateMode === "CYCLE" && laborCycles.length > 0) {
+      applyCycle(selectedCycleId, newCutoff);
+    }
+  };
 
   async function fetchReport() {
     if (!selectedEmpId) return;
@@ -137,14 +228,38 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
     setError(null);
 
     try {
-      let url = `/reports/employee-attendance?employee_id=${selectedEmpId}`;
-      if (dateMode === "MONTH") {
-        url += `&month=${selectedMonth}`;
+      let url = `/reports/employee-attendance?employee_id=${selectedEmpId}&start_date=${startDate}&end_date=${endDate}`;
+      const res: AttendanceReportData = await apiFetch(url);
+
+      // Inyectar metadatos claros de período para UI, Excel y PDF
+      let reportTypeLabel = "";
+      let cycleDesc = "";
+
+      if (dateMode === "CYCLE") {
+        const anchor = selectedEmp?.hire_date ? Number(String(selectedEmp.hire_date).slice(8, 10)) : 1;
+        reportTypeLabel = `Ciclo Laboral (Día ${anchor} de cada mes)`;
+        cycleDesc = cutoffMode === "SAME_DAY"
+          ? `Corte hasta día de pago (del ${String(anchor).padStart(2, "0")} al ${String(anchor).padStart(2, "0")} inclusive)`
+          : `Ciclo estándar de 30 días (del ${String(anchor).padStart(2, "0")} al día anterior)`;
+      } else if (dateMode === "MONTH") {
+        const [y, m] = selectedMonth.split("-");
+        const monthNames = [
+          "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+          "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+        ];
+        const mName = monthNames[Number(m) - 1] || selectedMonth;
+        reportTypeLabel = `Reporte Mensual (${mName} ${y})`;
+        cycleDesc = `Mes calendario completo (01 al ${res.period?.total_calendar_days || 30})`;
       } else {
-        url += `&start_date=${startDate}&end_date=${endDate}`;
+        reportTypeLabel = `Rango Personalizado`;
+        cycleDesc = `Del ${startDate} al ${endDate}`;
       }
 
-      const res = await apiFetch(url);
+      if (res && res.period) {
+        res.period.report_type_label = reportTypeLabel;
+        res.period.cycle_description = cycleDesc;
+      }
+
       setReportData(res);
     } catch (e: any) {
       console.error("Error al cargar reporte:", e);
@@ -155,17 +270,22 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
   }
 
   // Atajos rápidos de fecha
-  const applyQuickRange = (type: "THIS_MONTH" | "LAST_MONTH" | "LAST_15_DAYS" | "LAST_30_DAYS") => {
+  const applyQuickRange = (type: "THIS_MONTH" | "LAST_MONTH" | "LAST_15_DAYS" | "LAST_30_DAYS" | "HIRE_CYCLE") => {
     const today = new Date();
     if (type === "THIS_MONTH") {
       setDateMode("MONTH");
       const mStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
-      setSelectedMonth(mStr);
+      applyMonth(mStr);
     } else if (type === "LAST_MONTH") {
       setDateMode("MONTH");
       const lastM = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const mStr = `${lastM.getFullYear()}-${String(lastM.getMonth() + 1).padStart(2, "0")}`;
-      setSelectedMonth(mStr);
+      applyMonth(mStr);
+    } else if (type === "HIRE_CYCLE") {
+      setDateMode("CYCLE");
+      if (laborCycles.length > 0) {
+        applyCycle(laborCycles[0].id, cutoffMode);
+      }
     } else if (type === "LAST_15_DAYS") {
       setDateMode("CUSTOM");
       const past15 = new Date();
@@ -179,18 +299,6 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
       setStartDate(getLocalTodayStr(past30));
       setEndDate(getLocalTodayStr());
     }
-  };
-
-  const selectedEmp = useMemo(() => {
-    return employees.find((e) => String(e.id) === String(selectedEmpId));
-  }, [employees, selectedEmpId]);
-
-  const applyHireCycle = () => {
-    if (!selectedEmp?.hire_date) return;
-    const cycle = getCycleDatesForHireDate(selectedEmp.hire_date);
-    setDateMode("CUSTOM");
-    setStartDate(cycle.startDate);
-    setEndDate(cycle.endDate);
   };
 
   // Manejar exportación Excel
@@ -335,11 +443,11 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
       </DialogTitle>
 
       <DialogContent sx={{ p: 3, bgcolor: "#F8FAFC" }}>
-        {/* Barra de Filtros: Empleado y Fechas */}
+        {/* Barra de Filtros: Empleado y Modalidad de Período */}
         <Paper elevation={0} sx={{ p: 2.5, mb: 3, borderRadius: 2.5, border: "1px solid #E2E8F0", bgcolor: "#FFFFFF" }}>
-          <Grid container spacing={2} alignItems="center">
-            {/* Selector de Empleado */}
-            <Grid item xs={12} md={4}>
+          {/* Fila 1: Selección de Colaborador y Modo de Período */}
+          <Grid container spacing={2} alignItems="center" sx={{ mb: 2 }}>
+            <Grid item xs={12} md={4.5}>
               <FormControl fullWidth size="small">
                 <InputLabel id="emp-select-label" sx={{ fontWeight: 600 }}>Seleccionar Empleado</InputLabel>
                 <Select
@@ -372,46 +480,259 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
               </FormControl>
             </Grid>
 
-            {/* Modo de Selector de Fecha */}
-            <Grid item xs={12} md={2.5}>
-              <FormControl fullWidth size="small">
-                <InputLabel id="mode-select-label" sx={{ fontWeight: 600 }}>Tipo de Período</InputLabel>
-                <Select
-                  labelId="mode-select-label"
+            {/* Selector de Modalidad: Ciclo vs Mensual vs Personalizado */}
+            <Grid item xs={12} md={7.5}>
+              <Box sx={{ display: "flex", justifyContent: { xs: "flex-start", md: "flex-end" } }}>
+                <ToggleButtonGroup
                   value={dateMode}
-                  label="Tipo de Período"
-                  onChange={(e) => setDateMode(e.target.value as any)}
-                  sx={{ borderRadius: 2 }}
+                  exclusive
+                  onChange={(_, val) => handleModeChange(val)}
+                  size="small"
+                  sx={{
+                    bgcolor: "#F1F5F9",
+                    p: 0.4,
+                    borderRadius: 2.5,
+                    border: "1px solid #CBD5E1",
+                    "& .MuiToggleButton-root": {
+                      border: "none",
+                      borderRadius: 2,
+                      px: 2,
+                      py: 0.7,
+                      textTransform: "none",
+                      fontWeight: 700,
+                      fontSize: "0.82rem",
+                      color: "#475569",
+                      "&.Mui-selected": {
+                        bgcolor: "#1E40AF",
+                        color: "#FFFFFF",
+                        boxShadow: "0 2px 6px rgba(30, 64, 175, 0.35)",
+                        "&:hover": { bgcolor: "#1E3A8A" },
+                      },
+                    },
+                  }}
                 >
-                  <MenuItem value="MONTH">Por Mes Completo</MenuItem>
-                  <MenuItem value="CUSTOM">De Fecha a Fecha</MenuItem>
-                </Select>
-              </FormControl>
+                  <ToggleButton value="CYCLE">
+                    <SyncAltIcon sx={{ fontSize: 18, mr: 0.8 }} />
+                    Por Ciclo del Trabajador
+                  </ToggleButton>
+                  <ToggleButton value="MONTH">
+                    <CalendarMonthIcon sx={{ fontSize: 18, mr: 0.8 }} />
+                    Reporte Mensual Calendario
+                  </ToggleButton>
+                  <ToggleButton value="CUSTOM">
+                    <DateRangeIcon sx={{ fontSize: 18, mr: 0.8 }} />
+                    Personalizado
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
             </Grid>
+          </Grid>
 
-            {/* Control según Modo */}
-            {dateMode === "MONTH" ? (
-              <Grid item xs={12} md={3}>
-                <FormControl fullWidth size="small">
-                  <InputLabel id="month-select-label" sx={{ fontWeight: 600 }}>Mes a Consultar</InputLabel>
-                  <Select
-                    labelId="month-select-label"
-                    value={selectedMonth}
-                    label="Mes a Consultar"
-                    onChange={(e) => setSelectedMonth(e.target.value)}
-                    sx={{ borderRadius: 2 }}
-                  >
-                    {monthOptions.map((opt) => (
-                      <MenuItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Grid>
+          <Divider sx={{ my: 1.8 }} />
+
+          {/* Fila 2: Sub-panel dinámico según el modo seleccionado */}
+          {dateMode === "CYCLE" ? (
+            selectedEmp?.hire_date ? (
+              <Box sx={{ bgcolor: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 2, p: 2 }}>
+                <Grid container spacing={2} alignItems="center">
+                  {/* Selector de Ciclo Calculado */}
+                  <Grid item xs={12} sm={6} md={4.5}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel id="cycle-select-label" sx={{ fontWeight: 600 }}>Ciclo Laboral a Consultar</InputLabel>
+                      <Select
+                        labelId="cycle-select-label"
+                        value={selectedCycleId}
+                        label="Ciclo Laboral a Consultar"
+                        onChange={(e) => applyCycle(e.target.value)}
+                        sx={{ bgcolor: "#FFFFFF", borderRadius: 2 }}
+                      >
+                        {laborCycles.map((c) => (
+                          <MenuItem key={c.id} value={c.id}>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                              <Typography sx={{ fontSize: "0.86rem", fontWeight: c.isCurrent ? 700 : 500 }}>
+                                {c.isCurrent ? "🟢 " : "📁 "} {c.label}
+                              </Typography>
+                            </Box>
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+
+                  {/* Modalidad de Corte de Ciclo */}
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel id="cutoff-select-label" sx={{ fontWeight: 600 }}>Criterio de Corte</InputLabel>
+                      <Select
+                        labelId="cutoff-select-label"
+                        value={cutoffMode}
+                        label="Criterio de Corte"
+                        onChange={(e) => handleCutoffChange(e.target.value as any)}
+                        sx={{ bgcolor: "#FFFFFF", borderRadius: 2 }}
+                      >
+                        <MenuItem value="30_DAYS">
+                          30 días exactos (del {String(selectedEmp.hire_date).slice(8, 10)} al día anterior)
+                        </MenuItem>
+                        <MenuItem value="SAME_DAY">
+                          Hasta día de pago (del {String(selectedEmp.hire_date).slice(8, 10)} al {String(selectedEmp.hire_date).slice(8, 10)} inclusive)
+                        </MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+
+                  {/* Fechas editables */}
+                  <Grid item xs={6} sm={4} md={1.6}>
+                    <TextField
+                      label="Desde Fecha"
+                      type="date"
+                      size="small"
+                      fullWidth
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      InputLabelProps={{ shrink: true }}
+                      sx={{ bgcolor: "#FFFFFF", "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                    />
+                  </Grid>
+
+                  <Grid item xs={6} sm={4} md={1.6}>
+                    <TextField
+                      label="Hasta Fecha"
+                      type="date"
+                      size="small"
+                      fullWidth
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      InputLabelProps={{ shrink: true }}
+                      sx={{ bgcolor: "#FFFFFF", "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                    />
+                  </Grid>
+
+                  {/* Botón Actualizar */}
+                  <Grid item xs={12} sm={4} md={1.3}>
+                    <Button
+                      variant="contained"
+                      fullWidth
+                      onClick={fetchReport}
+                      disabled={loading}
+                      startIcon={<RefreshIcon />}
+                      sx={{
+                        bgcolor: "#1E40AF",
+                        "&:hover": { bgcolor: "#1E3A8A" },
+                        borderRadius: 2,
+                        py: 0.9,
+                        textTransform: "none",
+                        fontWeight: 700,
+                        fontSize: "0.82rem",
+                      }}
+                    >
+                      Consultar
+                    </Button>
+                  </Grid>
+                </Grid>
+
+                {/* Banner Informativo del Ciclo */}
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1.5 }}>
+                  <InfoOutlinedIcon sx={{ fontSize: 18, color: "#15803D" }} />
+                  <Typography variant="caption" sx={{ color: "#166534", fontWeight: 600 }}>
+                    Período calculado según ingreso: <b>{formatAttendanceDate(selectedEmp.hire_date)}</b> (Día {Number(String(selectedEmp.hire_date).slice(8, 10))} de cada mes). Evaluando <b>{formatAttendanceDate(startDate)}</b> al <b>{formatAttendanceDate(endDate)}</b> ({reportData?.period?.total_calendar_days || 30} días para su pago proyectado).
+                  </Typography>
+                </Box>
+              </Box>
             ) : (
-              <>
-                <Grid item xs={6} md={2}>
+              <Alert
+                severity="warning"
+                sx={{ borderRadius: 2 }}
+                action={
+                  <Button color="inherit" size="small" onClick={() => handleModeChange("MONTH")}>
+                    Usar Reporte Mensual
+                  </Button>
+                }
+              >
+                Este colaborador no tiene fecha de ingreso registrada en su ficha. Para usar el ciclo laboral automático, regístrala en la sección de Empleados, o consulta por <b>Reporte Mensual Calendario</b>.
+              </Alert>
+            )
+          ) : dateMode === "MONTH" ? (
+            <Box sx={{ bgcolor: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 2, p: 2 }}>
+              <Grid container spacing={2} alignItems="center">
+                {/* Selector de Mes Calendario */}
+                <Grid item xs={12} sm={6} md={5}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel id="month-select-label" sx={{ fontWeight: 600 }}>Mes Calendario a Consultar</InputLabel>
+                    <Select
+                      labelId="month-select-label"
+                      value={selectedMonth}
+                      label="Mes Calendario a Consultar"
+                      onChange={(e) => applyMonth(e.target.value)}
+                      sx={{ bgcolor: "#FFFFFF", borderRadius: 2 }}
+                    >
+                      {monthOptions.map((opt) => (
+                        <MenuItem key={opt.value} value={opt.value}>
+                          📅 {opt.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+
+                <Grid item xs={6} sm={3} md={2.5}>
+                  <TextField
+                    label="Desde (Inicio de Mes)"
+                    type="date"
+                    size="small"
+                    fullWidth
+                    value={startDate}
+                    disabled
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ bgcolor: "#FFFFFF", "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                  />
+                </Grid>
+
+                <Grid item xs={6} sm={3} md={2.5}>
+                  <TextField
+                    label="Hasta (Fin de Mes)"
+                    type="date"
+                    size="small"
+                    fullWidth
+                    value={endDate}
+                    disabled
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ bgcolor: "#FFFFFF", "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                  />
+                </Grid>
+
+                <Grid item xs={12} sm={12} md={2}>
+                  <Button
+                    variant="contained"
+                    fullWidth
+                    onClick={fetchReport}
+                    disabled={loading}
+                    startIcon={<RefreshIcon />}
+                    sx={{
+                      bgcolor: "#1E40AF",
+                      "&:hover": { bgcolor: "#1E3A8A" },
+                      borderRadius: 2,
+                      py: 0.9,
+                      textTransform: "none",
+                      fontWeight: 700,
+                      fontSize: "0.82rem",
+                    }}
+                  >
+                    Consultar Mes
+                  </Button>
+                </Grid>
+              </Grid>
+
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1.5 }}>
+                <InfoOutlinedIcon sx={{ fontSize: 18, color: "#1D4ED8" }} />
+                <Typography variant="caption" sx={{ color: "#1E40AF", fontWeight: 600 }}>
+                  Reporte mensual estándar: Evaluación exacta del 1 al último día de {monthOptions.find((m) => m.value === selectedMonth)?.label || selectedMonth}.
+                </Typography>
+              </Box>
+            </Box>
+          ) : (
+            <Box sx={{ bgcolor: "#F8FAFC", border: "1px solid #CBD5E1", borderRadius: 2, p: 2 }}>
+              <Grid container spacing={2} alignItems="center">
+                <Grid item xs={6} sm={4} md={3.5}>
                   <TextField
                     label="Desde Fecha"
                     type="date"
@@ -420,10 +741,11 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
                     InputLabelProps={{ shrink: true }}
-                    sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                    sx={{ bgcolor: "#FFFFFF", "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
                   />
                 </Grid>
-                <Grid item xs={6} md={2}>
+
+                <Grid item xs={6} sm={4} md={3.5}>
                   <TextField
                     label="Hasta Fecha"
                     type="date"
@@ -432,85 +754,68 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
                     InputLabelProps={{ shrink: true }}
-                    sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                    sx={{ bgcolor: "#FFFFFF", "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
                   />
                 </Grid>
-              </>
-            )}
 
-            {/* Botón de Refrescar */}
-            <Grid item xs={12} md={dateMode === "MONTH" ? 2.5 : 1.5}>
-              <Button
-                variant="outlined"
-                fullWidth
-                onClick={fetchReport}
-                disabled={loading}
-                startIcon={<RefreshIcon />}
-                sx={{
-                  borderRadius: 2,
-                  py: 0.9,
-                  textTransform: "none",
-                  fontWeight: 600,
-                  borderColor: "#CBD5E1",
-                  color: "#334155",
-                  "&:hover": { borderColor: "#94A3B8", bgcolor: "#F1F5F9" },
-                }}
-              >
-                Actualizar
-              </Button>
-            </Grid>
-          </Grid>
+                <Grid item xs={12} sm={4} md={2}>
+                  <Button
+                    variant="contained"
+                    fullWidth
+                    onClick={fetchReport}
+                    disabled={loading}
+                    startIcon={<RefreshIcon />}
+                    sx={{
+                      bgcolor: "#1E40AF",
+                      "&:hover": { bgcolor: "#1E3A8A" },
+                      borderRadius: 2,
+                      py: 0.9,
+                      textTransform: "none",
+                      fontWeight: 700,
+                      fontSize: "0.82rem",
+                    }}
+                  >
+                    Filtrar Rango
+                  </Button>
+                </Grid>
 
-          {/* Atajos Rápidos */}
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1.5, flexWrap: "wrap" }}>
-            <Typography variant="caption" sx={{ color: "#64748B", fontWeight: 700, mr: 0.5 }}>
-              Atajos Rápidos:
-            </Typography>
-            <Chip
-              label="Este Mes"
-              size="small"
-              clickable
-              onClick={() => applyQuickRange("THIS_MONTH")}
-              sx={{ bgcolor: "#F1F5F9", fontWeight: 600, "&:hover": { bgcolor: "#E2E8F0" } }}
-            />
-            <Chip
-              label="Mes Anterior"
-              size="small"
-              clickable
-              onClick={() => applyQuickRange("LAST_MONTH")}
-              sx={{ bgcolor: "#F1F5F9", fontWeight: 600, "&:hover": { bgcolor: "#E2E8F0" } }}
-            />
-            <Chip
-              label="Últimos 15 días"
-              size="small"
-              clickable
-              onClick={() => applyQuickRange("LAST_15_DAYS")}
-              sx={{ bgcolor: "#F1F5F9", fontWeight: 600, "&:hover": { bgcolor: "#E2E8F0" } }}
-            />
-            <Chip
-              label="Últimos 30 días"
-              size="small"
-              clickable
-              onClick={() => applyQuickRange("LAST_30_DAYS")}
-              sx={{ bgcolor: "#F1F5F9", fontWeight: 600, "&:hover": { bgcolor: "#E2E8F0" } }}
-            />
-            {selectedEmp?.hire_date && (
-              <Chip
-                icon={<CalendarMonthIcon sx={{ fontSize: "1rem !important", color: "#1E40AF !important" }} />}
-                label={`🎯 Ciclo según Ingreso (Día ${Number(String(selectedEmp.hire_date).slice(8, 10))})`}
-                size="small"
-                clickable
-                onClick={applyHireCycle}
-                sx={{
-                  bgcolor: "#EFF6FF",
-                  color: "#1E40AF",
-                  fontWeight: 700,
-                  border: "1px solid #BFDBFE",
-                  "&:hover": { bgcolor: "#DBEAFE" },
-                }}
-              />
-            )}
-          </Box>
+                <Grid item xs={12} md={3}>
+                  <Box sx={{ display: "flex", gap: 0.8, flexWrap: "wrap" }}>
+                    <Chip
+                      label="Este Mes"
+                      size="small"
+                      clickable
+                      onClick={() => applyQuickRange("THIS_MONTH")}
+                      sx={{ bgcolor: "#FFFFFF", border: "1px solid #CBD5E1", fontWeight: 600 }}
+                    />
+                    <Chip
+                      label="Mes Anterior"
+                      size="small"
+                      clickable
+                      onClick={() => applyQuickRange("LAST_MONTH")}
+                      sx={{ bgcolor: "#FFFFFF", border: "1px solid #CBD5E1", fontWeight: 600 }}
+                    />
+                    <Chip
+                      label="15 Días"
+                      size="small"
+                      clickable
+                      onClick={() => applyQuickRange("LAST_15_DAYS")}
+                      sx={{ bgcolor: "#FFFFFF", border: "1px solid #CBD5E1", fontWeight: 600 }}
+                    />
+                    {selectedEmp?.hire_date && (
+                      <Chip
+                        label="Ciclo Ingreso"
+                        size="small"
+                        clickable
+                        onClick={() => applyQuickRange("HIRE_CYCLE")}
+                        sx={{ bgcolor: "#DCFCE7", color: "#166534", fontWeight: 700 }}
+                      />
+                    )}
+                  </Box>
+                </Grid>
+              </Grid>
+            </Box>
+          )}
         </Paper>
 
         {loading ? (
@@ -614,6 +919,33 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
                   </Box>
                 </Grid>
               </Grid>
+
+              <Divider sx={{ my: 1.5 }} />
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 1 }}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Typography variant="body2" sx={{ color: "#64748B", fontSize: "0.78rem", fontWeight: 700 }}>
+                    MODALIDAD DE REPORTE:
+                  </Typography>
+                  <Chip
+                    label={reportData.period.report_type_label || (dateMode === "CYCLE" ? "Por Ciclo Laboral" : "Reporte Mensual")}
+                    size="small"
+                    sx={{
+                      fontWeight: 700,
+                      bgcolor: dateMode === "CYCLE" ? "#DCFCE7" : dateMode === "MONTH" ? "#EFF6FF" : "#F1F5F9",
+                      color: dateMode === "CYCLE" ? "#166534" : dateMode === "MONTH" ? "#1E40AF" : "#334155",
+                      fontSize: "0.75rem",
+                    }}
+                  />
+                  {reportData.period.cycle_description && (
+                    <Typography variant="caption" sx={{ color: "#64748B", fontStyle: "italic" }}>
+                      ({reportData.period.cycle_description})
+                    </Typography>
+                  )}
+                </Box>
+                <Typography variant="body2" sx={{ color: "#1E293B", fontSize: "0.82rem", fontWeight: 600 }}>
+                  Período computado: <b>{formatAttendanceDate(reportData.period.start_date)}</b> al <b>{formatAttendanceDate(reportData.period.end_date)}</b> ({reportData.period.total_calendar_days} días)
+                </Typography>
+              </Box>
             </Paper>
 
             {/* Tarjetas KPI de Resumen */}
