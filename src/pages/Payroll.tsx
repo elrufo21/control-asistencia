@@ -38,12 +38,15 @@ import PaymentsIcon from "@mui/icons-material/Payments";
 import PriceCheckIcon from "@mui/icons-material/PriceCheck";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import BeachAccessIcon from "@mui/icons-material/BeachAccess";
+import AssessmentIcon from "@mui/icons-material/Assessment";
 import { ColumnDef } from "@tanstack/react-table";
 import { apiFetch } from "../services/api";
 import { PageHeader } from "../components/PageHeader";
 import { MetricCard } from "../components/MetricCard";
 import { DataTable } from "../components/DataTable";
 import { StatusChip } from "../components/StatusChip";
+import { AttendanceReportModal } from "../components/AttendanceReportModal";
+import { getLocalTodayStr } from "../utils/dateUtils";
 
 const ALL_DAYS = [
   { key: "MONDAY", label: "Lun" },
@@ -125,6 +128,9 @@ export const Payroll: React.FC = () => {
   const [selectedEntry, setSelectedEntry] = useState<any>(null);
   const [receiptTab, setReceiptTab] = useState(0);
 
+  // Modal de Reporte en Vivo
+  const [showReportModal, setShowReportModal] = useState(false);
+
   // Histórico de pagos State
   const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -168,7 +174,7 @@ export const Payroll: React.FC = () => {
   // Ciclos Individuales de Empleados State
   const [employeeCycles, setEmployeeCycles] = useState<any[]>([]);
   const [loadingCycles, setLoadingCycles] = useState(false);
-  const [cycleRefDate, setCycleRefDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [cycleRefDate, setCycleRefDate] = useState<string>(getLocalTodayStr());
 
   useEffect(() => {
     loadPeriods();
@@ -963,6 +969,19 @@ export const Payroll: React.FC = () => {
         subtitle="Cálculo automático de haberes, gestión de adelantos de sueldo y archivo histórico de comprobantes."
         action={
           <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
+            <Button
+              variant="contained"
+              startIcon={<AssessmentIcon />}
+              onClick={() => setShowReportModal(true)}
+              sx={{
+                bgcolor: "#1E3A8A",
+                "&:hover": { bgcolor: "#1E40AF" },
+                fontWeight: 700,
+                boxShadow: "0 2px 8px rgba(30, 58, 138, 0.35)",
+              }}
+            >
+              Reporte en Vivo (Sin Calcular Planilla)
+            </Button>
             <Button variant="outlined" startIcon={<AddIcon />} onClick={() => setShowCreateModal(true)}>
               Nuevo Período
             </Button>
@@ -1877,6 +1896,12 @@ export const Payroll: React.FC = () => {
           </DialogActions>
         </Dialog>
       )}
+
+      {/* Modal de Reporte Detallado de Asistencia y Liquidación en Vivo */}
+      <AttendanceReportModal
+        open={showReportModal}
+        onClose={() => setShowReportModal(false)}
+      />
     </Box>
   );
 };

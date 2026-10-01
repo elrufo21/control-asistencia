@@ -26,11 +26,14 @@ import {
 import CloseIcon from "@mui/icons-material/Close";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import BeachAccessIcon from "@mui/icons-material/BeachAccess";
+import AssessmentIcon from "@mui/icons-material/Assessment";
 import { ColumnDef } from "@tanstack/react-table";
 import { apiFetch } from "../services/api";
 import { PageHeader } from "../components/PageHeader";
 import { DataTable } from "../components/DataTable";
 import { StatusChip } from "../components/StatusChip";
+import { AttendanceReportModal } from "../components/AttendanceReportModal";
+import { getLocalTodayStr } from "../utils/dateUtils";
 
 /**
  * Formatea una fecha a DD/Mes/AAAA (ej. 08/Sep/2026 o 01/Ago/2026)
@@ -73,11 +76,15 @@ export const Attendance: React.FC = () => {
   const [showDayOffModal, setShowDayOffModal] = useState(false);
   const [activeEmployees, setActiveEmployees] = useState<any[]>([]);
   const [dayOffEmpId, setDayOffEmpId] = useState<string>("");
-  const [dayOffDate, setDayOffDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [dayOffDate, setDayOffDate] = useState<string>(getLocalTodayStr());
   const [dayOffFraction, setDayOffFraction] = useState<number>(1.0);
   const [dayOffSlot, setDayOffSlot] = useState<string>("FULL");
   const [dayOffNotes, setDayOffNotes] = useState<string>("");
   const [submittingDayOff, setSubmittingDayOff] = useState(false);
+
+  // Report Modal State
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportEmployeeId, setReportEmployeeId] = useState<number | string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -107,7 +114,7 @@ export const Attendance: React.FC = () => {
       } else if (list.length > 0) {
         setDayOffEmpId(String(list[0].id));
       }
-      setDayOffDate(new Date().toISOString().slice(0, 10));
+      setDayOffDate(getLocalTodayStr());
       setDayOffFraction(1.0);
       setDayOffSlot("FULL");
       setDayOffNotes("");
@@ -305,23 +312,38 @@ export const Attendance: React.FC = () => {
     },
     {
       id: "actions",
-      header: "Acción",
+      header: "Acciones",
       cell: (info) => {
         const rec = info.row.original;
-        if (rec.status === "LATE" || rec.status === "ABSENT") {
-          return (
+        return (
+          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
             <Button
               size="small"
               variant="outlined"
-              color="warning"
-              startIcon={<CheckCircleOutlineIcon />}
-              onClick={() => openJustification(rec)}
+              color="primary"
+              startIcon={<AssessmentIcon />}
+              onClick={() => {
+                setReportEmployeeId(rec.employee_id);
+                setShowReportModal(true);
+              }}
+              sx={{ textTransform: "none", fontSize: "0.75rem", py: 0.3 }}
             >
-              Justificar / Canjear
+              Reporte
             </Button>
-          );
-        }
-        return null;
+            {(rec.status === "LATE" || rec.status === "ABSENT") && (
+              <Button
+                size="small"
+                variant="outlined"
+                color="warning"
+                startIcon={<CheckCircleOutlineIcon />}
+                onClick={() => openJustification(rec)}
+                sx={{ textTransform: "none", fontSize: "0.75rem", py: 0.3 }}
+              >
+                Justificar
+              </Button>
+            )}
+          </Box>
+        );
       },
     },
   ];
@@ -382,15 +404,35 @@ export const Attendance: React.FC = () => {
         title="Control de Asistencia"
         subtitle="Monitoreo diario de marcaciones, jornadas, tardanzas e incidencias."
         action={
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={<BeachAccessIcon />}
-            onClick={() => openAssignDayOffModal()}
-            sx={{ fontWeight: 700, py: 1, px: 2.5 }}
-          >
-            + Asignar Descanso
-          </Button>
+          <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
+            <Button
+              variant="contained"
+              startIcon={<AssessmentIcon />}
+              onClick={() => {
+                setReportEmployeeId(null);
+                setShowReportModal(true);
+              }}
+              sx={{
+                bgcolor: "#1E3A8A",
+                "&:hover": { bgcolor: "#1E40AF" },
+                fontWeight: 700,
+                py: 1,
+                px: 2.5,
+                boxShadow: "0 2px 8px rgba(30, 58, 138, 0.35)",
+              }}
+            >
+              Reporte de Asistencia y Pago
+            </Button>
+            <Button
+              variant="outlined"
+              color="primary"
+              startIcon={<BeachAccessIcon />}
+              onClick={() => openAssignDayOffModal()}
+              sx={{ fontWeight: 700, py: 1, px: 2 }}
+            >
+              + Asignar Descanso
+            </Button>
+          </Box>
         }
       />
 
@@ -746,6 +788,13 @@ export const Attendance: React.FC = () => {
           </DialogActions>
         </form>
       </Dialog>
+
+      {/* Modal de Reporte Detallado de Asistencia y Liquidación */}
+      <AttendanceReportModal
+        open={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        initialEmployeeId={reportEmployeeId}
+      />
     </Box>
   );
 };

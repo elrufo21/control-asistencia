@@ -31,11 +31,14 @@ import BeachAccessIcon from "@mui/icons-material/BeachAccess";
 import PersonIcon from "@mui/icons-material/Person";
 import WorkIcon from "@mui/icons-material/Work";
 import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
+import AssessmentIcon from "@mui/icons-material/Assessment";
 import { ColumnDef } from "@tanstack/react-table";
 import { apiFetch } from "../services/api";
 import { PageHeader } from "../components/PageHeader";
 import { DataTable } from "../components/DataTable";
 import { StatusChip } from "../components/StatusChip";
+import { AttendanceReportModal } from "../components/AttendanceReportModal";
+import { getLocalTodayStr } from "../utils/dateUtils";
 
 function parseWorkDays(raw: any): string[] {
   if (!raw) return [];
@@ -84,15 +87,19 @@ export const Employees: React.FC = () => {
   const [empDayOffStats, setEmpDayOffStats] = useState<any>(null);
   const [detailTab, setDetailTab] = useState(0);
 
+  // Modal de Reporte de Asistencia y Liquidación
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportEmployeeId, setReportEmployeeId] = useState<number | string | null>(null);
+
   // Modal de Asignar Descanso a Trabajador
   const [showRestModal, setShowRestModal] = useState(false);
-  const [restDate, setRestDate] = useState(new Date().toISOString().slice(0, 10));
+  const [restDate, setRestDate] = useState(getLocalTodayStr());
   const [restSlot, setRestSlot] = useState("FULL");
   const [restNotes, setRestNotes] = useState("");
   const [savingRest, setSavingRest] = useState(false);
 
   const openRestDialog = () => {
-    setRestDate(new Date().toISOString().slice(0, 10));
+    setRestDate(getLocalTodayStr());
     setRestSlot("FULL");
     setRestNotes("");
     setShowRestModal(true);
@@ -134,7 +141,7 @@ export const Employees: React.FC = () => {
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [position, setPosition] = useState("");
-  const [hireDate, setHireDate] = useState(new Date().toISOString().slice(0, 10));
+  const [hireDate, setHireDate] = useState(getLocalTodayStr());
   const [dailyRate, setDailyRate] = useState("50.00");
   const [otRate, setOtRate] = useState("8.00");
   const [contractType, setContractType] = useState("CONTRACT");
@@ -166,7 +173,7 @@ export const Employees: React.FC = () => {
     setLastName("");
     setPhone("");
     setPosition("");
-    setHireDate(new Date().toISOString().slice(0, 10));
+    setHireDate(getLocalTodayStr());
     setDailyRate("50.00");
     setOtRate("8.00");
     setContractType("CONTRACT");
@@ -352,21 +359,43 @@ export const Employees: React.FC = () => {
       cell: (info) => {
         const emp = info.row.original;
         return (
-          <Box sx={{ display: "flex", gap: 1 }}>
+          <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<AssessmentIcon />}
+              onClick={() => {
+                setReportEmployeeId(emp.id);
+                setShowReportModal(true);
+              }}
+              sx={{
+                bgcolor: "#1E3A8A",
+                "&:hover": { bgcolor: "#1E40AF" },
+                textTransform: "none",
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                py: 0.3,
+                px: 1.5,
+              }}
+            >
+              Reporte
+            </Button>
             <Button
               size="small"
               variant="outlined"
               color="info"
               startIcon={<VisibilityIcon />}
               onClick={() => openDetailModal(emp)}
+              sx={{ textTransform: "none", fontSize: "0.75rem", py: 0.3 }}
             >
-              Ver Detalle
+              Detalle
             </Button>
             <Button
               size="small"
               variant="outlined"
               startIcon={<EditIcon />}
               onClick={() => openEditModal(emp)}
+              sx={{ textTransform: "none", fontSize: "0.75rem", py: 0.3 }}
             >
               Editar
             </Button>
@@ -382,9 +411,29 @@ export const Employees: React.FC = () => {
         title="Gestión de Trabajadores"
         subtitle="Administra el personal, tipos de contrato, tarifas económicas y días de trabajo."
         action={
-          <Button variant="contained" startIcon={<AddIcon />} onClick={openCreateModal} sx={{ py: 1.2, px: 3 }}>
-            Nuevo Trabajador
-          </Button>
+          <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
+            <Button
+              variant="contained"
+              startIcon={<AssessmentIcon />}
+              onClick={() => {
+                setReportEmployeeId(null);
+                setShowReportModal(true);
+              }}
+              sx={{
+                bgcolor: "#1E3A8A",
+                "&:hover": { bgcolor: "#1E40AF" },
+                fontWeight: 700,
+                py: 1.1,
+                px: 2.5,
+                boxShadow: "0 2px 8px rgba(30, 58, 138, 0.35)",
+              }}
+            >
+              Reporte y Liquidación
+            </Button>
+            <Button variant="contained" color="primary" startIcon={<AddIcon />} onClick={openCreateModal} sx={{ py: 1.1, px: 2.5, fontWeight: 700 }}>
+              + Nuevo Trabajador
+            </Button>
+          </Box>
         }
       />
 
@@ -394,7 +443,29 @@ export const Employees: React.FC = () => {
       {showDetailModal && selectedEmp && (
         <Dialog open={showDetailModal} onClose={() => setShowDetailModal(false)} maxWidth="md" fullWidth>
           <DialogTitle sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: 800 }}>
-            Detalle del Empleado & Historial
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+              <span>Detalle del Empleado & Historial</span>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<AssessmentIcon />}
+                onClick={() => {
+                  setReportEmployeeId(selectedEmp.id);
+                  setShowReportModal(true);
+                }}
+                sx={{
+                  bgcolor: "#1E3A8A",
+                  "&:hover": { bgcolor: "#1E40AF" },
+                  textTransform: "none",
+                  fontWeight: 700,
+                  fontSize: "0.78rem",
+                  py: 0.4,
+                  px: 1.8,
+                }}
+              >
+                Generar Reporte Completo
+              </Button>
+            </Box>
             <IconButton onClick={() => setShowDetailModal(false)} size="small">
               <CloseIcon />
             </IconButton>
@@ -816,6 +887,13 @@ export const Employees: React.FC = () => {
           </form>
         </Dialog>
       )}
+
+      {/* Modal de Reporte Detallado de Asistencia y Liquidación */}
+      <AttendanceReportModal
+        open={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        initialEmployeeId={reportEmployeeId}
+      />
     </Box>
   );
 };
