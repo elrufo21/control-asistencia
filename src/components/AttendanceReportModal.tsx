@@ -45,7 +45,7 @@ import EventBusyIcon from "@mui/icons-material/EventBusy";
 import { apiFetch } from "../services/api";
 import { exportAttendanceReportToExcel, AttendanceReportData } from "../utils/excelExport";
 import { exportAttendanceReportToPdf } from "../utils/pdfExport";
-import { getLocalTodayStr, getFirstDayOfMonthStr, getLastDayOfMonthStr } from "../utils/dateUtils";
+import { getLocalTodayStr, getFirstDayOfMonthStr, getLastDayOfMonthStr, getCycleDatesForHireDate, formatAttendanceDate } from "../utils/dateUtils";
 
 interface AttendanceReportModalProps {
   open: boolean;
@@ -179,6 +179,18 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
       setStartDate(getLocalTodayStr(past30));
       setEndDate(getLocalTodayStr());
     }
+  };
+
+  const selectedEmp = useMemo(() => {
+    return employees.find((e) => String(e.id) === String(selectedEmpId));
+  }, [employees, selectedEmpId]);
+
+  const applyHireCycle = () => {
+    if (!selectedEmp?.hire_date) return;
+    const cycle = getCycleDatesForHireDate(selectedEmp.hire_date);
+    setDateMode("CUSTOM");
+    setStartDate(cycle.startDate);
+    setEndDate(cycle.endDate);
   };
 
   // Manejar exportación Excel
@@ -482,6 +494,22 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
               onClick={() => applyQuickRange("LAST_30_DAYS")}
               sx={{ bgcolor: "#F1F5F9", fontWeight: 600, "&:hover": { bgcolor: "#E2E8F0" } }}
             />
+            {selectedEmp?.hire_date && (
+              <Chip
+                icon={<CalendarMonthIcon sx={{ fontSize: "1rem !important", color: "#1E40AF !important" }} />}
+                label={`🎯 Ciclo según Ingreso (Día ${Number(String(selectedEmp.hire_date).slice(8, 10))})`}
+                size="small"
+                clickable
+                onClick={applyHireCycle}
+                sx={{
+                  bgcolor: "#EFF6FF",
+                  color: "#1E40AF",
+                  fontWeight: 700,
+                  border: "1px solid #BFDBFE",
+                  "&:hover": { bgcolor: "#DBEAFE" },
+                }}
+              />
+            )}
           </Box>
         </Paper>
 
@@ -525,7 +553,7 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
                       <Typography variant="h6" sx={{ fontWeight: 800, fontSize: "1.1rem", lineHeight: 1.2, color: "#0F172A" }}>
                         {reportData.employee.full_name}
                       </Typography>
-                      <Box sx={{ display: "flex", gap: 1, mt: 0.4 }}>
+                      <Box sx={{ display: "flex", gap: 1, mt: 0.4, alignItems: "center", flexWrap: "wrap" }}>
                         <Chip
                           label={reportData.employee.employee_code}
                           size="small"
@@ -534,6 +562,13 @@ export const AttendanceReportModal: React.FC<AttendanceReportModalProps> = ({
                         <Typography sx={{ fontSize: "0.82rem", color: "#64748B" }}>
                           DNI: {reportData.employee.document_number || "No registrado"}
                         </Typography>
+                        {reportData.employee.hire_date && (
+                          <Chip
+                            label={`Ingreso: ${formatAttendanceDate(reportData.employee.hire_date)}`}
+                            size="small"
+                            sx={{ fontSize: "0.72rem", height: 20, bgcolor: "#F1F5F9", color: "#334155", fontWeight: 700 }}
+                          />
+                        )}
                       </Box>
                     </Box>
                   </Box>
